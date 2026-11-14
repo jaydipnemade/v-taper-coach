@@ -431,6 +431,7 @@ function renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, det
         // instant it exists, which would otherwise instantly beep/flash the
         // new floating widget for what is really a 20-minute cardio block.
         primeRestTimerAudio();
+        setRestTimerKind('rest');
         try {
           startRestTimer(restMs);
         } catch (err) {
@@ -550,6 +551,7 @@ function renderStomachVacuumHoldButton(exercise) {
   btn.textContent = 'Start hold (25s)';
   btn.addEventListener('click', () => {
     primeRestTimerAudio();
+    setRestTimerKind('hold');
     try {
       startRestTimer(STOMACH_VACUUM_HOLD_MS);
     } catch (err) {
@@ -652,10 +654,38 @@ const REST_TIMER_FLASH_MS = 600;
 const REST_TIMER_BEEP_SECONDS = 0.18;
 
 let restTimerWidgetEl = null;
+let restTimerLabelEl = null;
 let restTimerTimeEl = null;
 let restTimerFlashEl = null;
 let restTimerWakeLock = null;
 let restTimerAudioCtx = null;
+
+// Which of the two use cases the CURRENTLY active timer represents —
+// "resting between sets" (the default) vs. the stomach-vacuum "hold". Kept
+// in sessionStorage (not just a module-level var) alongside the timer's own
+// end-timestamp key so it survives a page reload the same way the timer
+// itself does, and so it's never ambiguous which label a freshly-built
+// widget instance should show on first poll. Always set explicitly right
+// before each startRestTimer() call (both call sites below) rather than
+// relying on this defaulting correctly, so a stale 'hold' from a previous,
+// never-completed hold can't leak into the next ordinary rest timer.
+const REST_TIMER_KIND_KEY = 'vtaper-rest-timer-kind';
+
+function setRestTimerKind(kind) {
+  try {
+    sessionStorage.setItem(REST_TIMER_KIND_KEY, kind);
+  } catch (err) {
+    // sessionStorage blocked — the widget will just default to "Rest".
+  }
+}
+
+function getRestTimerKind() {
+  try {
+    return sessionStorage.getItem(REST_TIMER_KIND_KEY) === 'hold' ? 'hold' : 'rest';
+  } catch (err) {
+    return 'rest';
+  }
+}
 
 // The end timestamp this widget instance is currently tracking, and whether
 // it has ever observed that timer with remaining > 0. A fresh 0ms timer (or
@@ -759,10 +789,25 @@ async function releaseRestTimerWakeLock() {
 
 function showRestTimerWidget() {
   if (restTimerWidgetEl) restTimerWidgetEl.hidden = false;
+  // Re-read the kind on every show (not just once at start) so the single
+  // widget instance's label always matches whichever timer is actually
+  // active right now, including across a reload that restored an
+  // in-progress timer from sessionStorage.
+  if (restTimerLabelEl) {
+    restTimerLabelEl.textContent = getRestTimerKind() === 'hold' ? 'Hold' : 'Rest';
+  }
 }
 
 function hideRestTimerWidget() {
   if (restTimerWidgetEl) restTimerWidgetEl.hidden = true;
+  // Clear the kind once the widget is actually hidden (timer gone/finished)
+  // so a lingering 'hold' can never bleed into the next timer's first poll
+  // before its own call site re-sets it.
+  try {
+    sessionStorage.removeItem(REST_TIMER_KIND_KEY);
+  } catch (err) {
+    // Non-fatal — the next explicit setRestTimerKind() call still wins.
+  }
 }
 
 function pollRestTimer() {
@@ -837,6 +882,7 @@ function buildRestTimerWidget() {
   const label = document.createElement('span');
   label.className = 'rest-timer-label';
   label.textContent = 'Rest';
+  restTimerLabelEl = label;
 
   const time = document.createElement('span');
   time.className = 'rest-timer-time';

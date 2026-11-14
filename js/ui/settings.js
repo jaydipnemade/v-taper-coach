@@ -365,7 +365,11 @@ function buildProfileForm(settings, onSaved) {
 const GROCERY_STALE_AFTER_DAYS = 7;
 
 /** Whole-day difference between two 'YYYY-MM-DD' strings, both parsed as
- * local midnight so neither time-of-day nor DST shifts skew the count. */
+ * local midnight so neither time-of-day nor DST shifts skew the count.
+ * Math.round (not Math.floor) because both inputs are already local
+ * midnight, so the division is only ever off by sub-millisecond floating
+ * point error, never a genuine fractional day — round is just there to
+ * land exactly on the integer instead of e.g. 6.999999999999. */
 function daysBetweenISO(fromISO, toISO) {
   const from = new Date(`${fromISO}T00:00:00`);
   const to = new Date(`${toISO}T00:00:00`);
@@ -419,6 +423,11 @@ function renderGroceryChecklist(checklist) {
   weekOfLine.textContent = `Week of ${checklist.weekOf}`;
   card.appendChild(weekOfLine);
 
+  // Identity here is the raw `item` string (GROCERY_LIST entries have no
+  // id field). Safe today because GROCERY_LIST has no duplicate item names
+  // across categories — if a future data edit adds one, switch this (and
+  // the data-read in the checkbox below) to a `${category}::${item}`
+  // composite key instead.
   const checkedItems = new Set(checklist.checkedItems);
 
   async function persistCheckedItems() {
