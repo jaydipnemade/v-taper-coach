@@ -24,7 +24,7 @@ export const DAYS = {
       { id: 'machine-chest-press', order: 5, name: 'Machine chest press', sets: '2', repsLow: '8', repsHigh: '12', rest: '2 min', rir: '1', notes: '', incrementType: 'machine' },
       { id: 'overhead-cable-triceps-extension', order: 6, name: 'Overhead cable triceps extension', sets: '3', repsLow: '10', repsHigh: '15', rest: '75 s', rir: '1', notes: '', incrementType: 'cable' },
       { id: 'rope-pushdown', order: 7, name: 'Rope pushdown', sets: '2', repsLow: '12', repsHigh: '15', rest: '60 s', rir: '0-1', notes: '', incrementType: 'cable' },
-      { id: 'stomach-vacuum', order: 8, name: 'Stomach vacuum', sets: '4', repsLow: '20', repsHigh: '30', rest: '30 s', rir: '—', notes: 'Hold time in seconds', incrementType: 'machine', cue: 'Best done first thing in the morning on an empty stomach. Breathe all the air out, pull the belly button toward the spine and up under the ribs, hold for 20-30 s while taking small breaths.' },
+      { id: 'stomach-vacuum', order: 8, name: 'Stomach vacuum', sets: '4', repsLow: '20', repsHigh: '30', rest: '30 s', rir: '—', notes: 'Hold time in seconds', incrementType: 'bodyweight', cue: 'Best done first thing in the morning on an empty stomach. Breathe all the air out, pull the belly button toward the spine and up under the ribs, hold for 20-30 s while taking small breaths.' },
     ],
   },
   tue: {
@@ -40,8 +40,8 @@ export const DAYS = {
       { id: 'seated-leg-curl', order: 4, name: 'Seated leg curl', sets: '3', repsLow: '10', repsHigh: '15', rest: '90 s', rir: '1', notes: '', incrementType: 'machine' },
       { id: 'bulgarian-split-squat', order: 5, name: 'Dumbbell Bulgarian split squat (upright torso)', sets: '2', repsLow: '10', repsHigh: '10', rest: '90 s', rir: '2', notes: 'Per leg', incrementType: 'dumbbell' },
       { id: 'standing-calf-raise', order: 6, name: 'Standing calf raise (2 s pause at bottom)', sets: '4', repsLow: '10', repsHigh: '15', rest: '60 s', rir: '1', notes: '', incrementType: 'machine' },
-      { id: 'dead-bug', order: 7, name: 'Dead bug', sets: '3', repsLow: '10', repsHigh: '10', rest: '45 s', rir: '—', notes: 'Per side', incrementType: 'machine' },
-      { id: 'pallof-press', order: 8, name: 'Pallof press (anti-rotation)', sets: '3', repsLow: '12', repsHigh: '12', rest: '45 s', rir: '—', notes: 'Per side', incrementType: 'cable' },
+      { id: 'dead-bug', order: 7, name: 'Dead bug', sets: '3', repsLow: '10', repsHigh: '10', rest: '45 s', rir: '—', notes: 'Per side', incrementType: 'bodyweight' },
+      { id: 'pallof-press', order: 8, name: 'Pallof press (anti-rotation)', sets: '3', repsLow: '12', repsHigh: '12', rest: '45 s', rir: '—', notes: 'Per side', incrementType: 'bodyweight' },
     ],
   },
   wed: {
@@ -58,7 +58,8 @@ export const DAYS = {
       { id: 'reverse-pec-deck', order: 5, name: 'Reverse pec deck', sets: '3', repsLow: '15', repsHigh: '20', rest: '60 s', rir: '0-1', notes: '', incrementType: 'machine' },
       { id: 'incline-db-curl', order: 6, name: 'Incline dumbbell curl', sets: '3', repsLow: '8', repsHigh: '12', rest: '75 s', rir: '1', notes: '', incrementType: 'dumbbell' },
       { id: 'hammer-curl', order: 7, name: 'Hammer curl', sets: '2', repsLow: '10', repsHigh: '12', rest: '60 s', rir: '1', notes: '', incrementType: 'dumbbell' },
-      { id: 'captains-chair-knee-raise', order: 8, name: "Captain's-chair knee raise (tuck pelvis, no swing)", sets: '3', repsLow: '10', repsHigh: '15', rest: '60 s', rir: '1', notes: '', incrementType: 'machine' },
+      { id: 'captains-chair-knee-raise', order: 8, name: "Captain's-chair knee raise (tuck pelvis, no swing)", sets: '3', repsLow: '10', repsHigh: '15', rest: '60 s', rir: '1', notes: '', incrementType: 'bodyweight' },
+      { id: 'seal-row', order: 9, name: 'Chest-supported seal row', sets: '4', repsLow: '8', repsHigh: '10', rest: '2 min', rir: '2', notes: 'Build 2 equipment alternate for t-bar-row (same sets, reps, rest and RIR; swapped in for weeks 7-11)', incrementType: 'machine', swaps: ['t-bar-row'] },
     ],
   },
   thu: {
@@ -70,7 +71,7 @@ export const DAYS = {
     exercises: [
       { id: 'machine-lateral-raise', order: 1, name: 'Machine lateral raise (or seated dumbbell)', sets: '4', repsLow: '10', repsHigh: '15', rest: '75 s', rir: '1', notes: '', incrementType: 'machine' },
       { id: 'incline-smith-press', order: 2, name: 'Incline Smith machine press (30°)', sets: '3', repsLow: '6', repsHigh: '10', rest: '2-3 min', rir: '2', notes: '', incrementType: 'machine', swaps: ['incline-db-press'] },
-      { id: 'neutral-grip-pullup', order: 3, name: 'Neutral-grip pull-up (assisted if needed)', sets: '3', repsLow: '6', repsHigh: '10', rest: '2 min', rir: '2', notes: '', incrementType: 'machine' },
+      { id: 'neutral-grip-pullup', order: 3, name: 'Neutral-grip pull-up (assisted if needed)', sets: '3', repsLow: '6', repsHigh: '10', rest: '2 min', rir: '2', notes: '', incrementType: 'bodyweight' },
       { id: 'seated-cable-row', order: 4, name: 'Seated cable row, wide grip, elbows out', sets: '3', repsLow: '10', repsHigh: '12', rest: '90 s', rir: '1', notes: '', incrementType: 'cable' },
       { id: 'cable-y-raise', order: 5, name: 'Cable Y-raise', sets: '3', repsLow: '12', repsHigh: '15', rest: '60 s', rir: '1', notes: '', incrementType: 'cable' },
       { id: 'face-pull', order: 6, name: 'Face pull', sets: '3', repsLow: '12', repsHigh: '15', rest: '60 s', rir: '1', notes: '', incrementType: 'cable' },
@@ -92,7 +93,7 @@ export const DAYS = {
       { id: 'leg-extension-lower-b', order: 5, name: 'Leg extension', sets: '2', repsLow: '15', repsHigh: '20', rest: '60 s', rir: '0-1', notes: '', incrementType: 'machine' },
       { id: 'seated-calf-raise', order: 6, name: 'Seated calf raise', sets: '4', repsLow: '12', repsHigh: '20', rest: '60 s', rir: '1', notes: '', incrementType: 'machine' },
       { id: 'kneeling-cable-crunch', order: 7, name: 'Kneeling cable crunch', sets: '3', repsLow: '10', repsHigh: '15', rest: '60 s', rir: '1', notes: '', incrementType: 'cable' },
-      { id: 'front-plank-stomach-vacuum', order: 8, name: 'Front plank (squeeze glutes) + stomach vacuum', sets: '3', repsLow: '30', repsHigh: '45', rest: '45 s', rir: '—', notes: 'Plank holds in seconds, then 3 × 20 s stomach vacuum', incrementType: 'machine' },
+      { id: 'front-plank-stomach-vacuum', order: 8, name: 'Front plank (squeeze glutes) + stomach vacuum', sets: '3', repsLow: '30', repsHigh: '45', rest: '45 s', rir: '—', notes: 'Plank holds in seconds, then 3 × 20 s stomach vacuum', incrementType: 'bodyweight' },
     ],
   },
   sat: {
@@ -109,8 +110,8 @@ export const DAYS = {
       { id: 'assisted-dips', order: 5, name: 'Assisted dips or machine dips (upright torso)', sets: '3', repsLow: '8', repsHigh: '12', rest: '90 s', rir: '1-2', notes: '', incrementType: 'machine' },
       { id: 'preacher-curl', order: 6, name: 'Preacher curl (machine or EZ-bar)', sets: '2', repsLow: '10', repsHigh: '12', rest: '60 s', rir: '1', notes: '', incrementType: 'machine' },
       { id: 'single-arm-cable-pushdown', order: 7, name: 'Single-arm cable pushdown', sets: '2', repsLow: '12', repsHigh: '15', rest: '45 s', rir: '0-1', notes: 'Per arm', incrementType: 'cable' },
-      { id: 'reverse-crunch-dead-bug', order: 8, name: 'Reverse crunch (slow, curl the pelvis) + dead bug', sets: '3', repsLow: '12', repsHigh: '12', rest: '45 s', rir: '—', notes: 'Then 3 × 10 per side dead bug', incrementType: 'machine' },
-      { id: 'incline-treadmill-walk', order: 9, name: 'Incline treadmill walk (8-10%, 5-5.5 km/h)', sets: '1', repsLow: '20', repsHigh: '20', rest: '—', rir: '—', notes: '20 min, not reps', incrementType: 'machine' },
+      { id: 'reverse-crunch-dead-bug', order: 8, name: 'Reverse crunch (slow, curl the pelvis) + dead bug', sets: '3', repsLow: '12', repsHigh: '12', rest: '45 s', rir: '—', notes: 'Then 3 × 10 per side dead bug', incrementType: 'bodyweight' },
+      { id: 'incline-treadmill-walk', order: 9, name: 'Incline treadmill walk (8-10%, 5-5.5 km/h)', sets: '1', repsLow: '20', repsHigh: '20', rest: '—', rir: '—', notes: '20 min, not reps', incrementType: 'bodyweight' },
     ],
   },
   sun: {
@@ -153,7 +154,7 @@ export const BLOCK_STRUCTURE = [
   { weeks: [12], phase: 'deload2', setMultiplier: 0.5 },
 ];
 
-export const INCREMENT_BY_TYPE = { dumbbell: 2.5, machine: 2.5, legpress: 5, hipthrust: 5, cable: '1 pin' };
+export const INCREMENT_BY_TYPE = { dumbbell: 2.5, machine: 2.5, legpress: 5, hipthrust: 5, cable: '1 pin', bodyweight: null };
 
 export const NUTRITION_PHASES = {
   recomp: { weeks: [1, 2, 3, 4], kcal: 2500, protein: 140, fat: 65, carbs: 340 },
