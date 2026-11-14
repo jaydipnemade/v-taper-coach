@@ -85,9 +85,15 @@ export function initRouter(tabs) {
     });
   }
 
-  if (!location.hash) {
+  if (location.hash) {
+    // A hash is already present (direct link, reload, back/forward landing
+    // here) — route synchronously, nothing else will trigger it.
+    route();
+  } else {
+    // No hash yet. Setting location.hash schedules an async `hashchange`
+    // event rather than routing synchronously, so that event is what must
+    // do the one-and-only render — calling route() here too would render
+    // the default tab twice on every cold start (no-hash) page load.
     location.hash = `#${DEFAULT_TAB}`;
   }
-
-  route();
 }
