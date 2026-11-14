@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plan data smoke tests</title>
+</head>
+<body>
+  <h1>Plan data smoke tests</h1>
+  <ul id="results"></ul>
+  <script type="module">
+    import {
+      DAY_ORDER, DAYS, BLOCK_STRUCTURE, MEAL_PLAN,
+    } from './js/data/plan.js';
+
+    const results = document.getElementById('results');
+    const checks = [];
+    const check = (name, fn) => {
+      let ok = false;
+      let detail = '';
+      try {
+        const r = fn();
+        ok = r === true;
+        if (!ok) detail = typeof r === 'string' ? r : 'assertion false';
+      } catch (err) {
+        detail = err.message;
+      }
+      checks.push({ name, ok, detail });
+    };
+
+    check('DAY_ORDER has 7 entries', () => DAY_ORDER.length === 7 || `length ${DAY_ORDER.length}`);
+
+    check('every DAY_ORDER key exists in DAYS', () => {
+      const missing = DAY_ORDER.filter((d) => !(d in DAYS));
+      return missing.length === 0 || `missing: ${missing.join(', ')}`;
+    });
+
+    check('every non-rest day has at least 7 exercises', () => {
+      const short = DAY_ORDER.filter((d) => !DAYS[d].isRestDay && DAYS[d].exercises.length < 7)
+        .map((d) => `${d}=${DAYS[d].exercises.length}`);
+      return short.length === 0 || `short: ${short.join(', ')}`;
+    });
+
+    check('every PlanExercise id is unique across all days', () => {
+      const ids = DAY_ORDER.flatMap((d) => DAYS[d].exercises.map((e) => e.id));
+      const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
+      return dupes.length === 0 || `duplicates: ${[...new Set(dupes)].join(', ')}`;
+    });
+
+    check('BLOCK_STRUCTURE covers weeks 1-12 exactly once', () => {
+      const weeks = BLOCK_STRUCTURE.flatMap((b) => b.weeks).sort((a, b) => a - b);
+      const expected = Array.from({ length: 12 }, (_, i) => i + 1);
+      return JSON.stringify(weeks) === JSON.stringify(expected) || `weeks: ${weeks.join(',')}`;
+    });
+
+    check('MEAL_PLAN has all 7 day keys with a meals array', () => {
+      const bad = DAY_ORDER.filter((d) => !MEAL_PLAN[d] || !Array.isArray(MEAL_PLAN[d].meals));
+      return bad.length === 0 || `bad: ${bad.join(', ')}`;
+    });
+
+    check('MEAL_PLAN meal kcal sums match dayTotalKcal within 5', () => {
+      const off = DAY_ORDER.map((d) => {
+        const sum = MEAL_PLAN[d].meals.reduce((s, m) => s + m.kcal, 0);
+        return { d, diff: sum - MEAL_PLAN[d].dayTotalKcal };
+      }).filter((x) => Math.abs(x.diff) > 5);
+      return off.length === 0 || off.map((x) => `${x.d}:${x.diff}`).join(', ');
+    });
+
+    for (const { name, ok, detail } of checks) {
+      const li = document.createElement('li');
+      li.textContent = `${ok ? 'PASS' : 'FAIL'} - ${name}${ok ? '' : ` (${detail})`}`;
+      results.appendChild(li);
+    }
+    const passed = checks.filter((c) => c.ok).length;
+    const summary = document.createElement('li');
+    summary.textContent = `${passed}/${checks.length} passed`;
+    results.appendChild(summary);
+  </script>
+</body>
+</html>
