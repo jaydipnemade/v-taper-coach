@@ -457,22 +457,21 @@ function renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, det
 // window events.
 // ---------------------------------------------------------------------------
 
-// Tracks every "needs internet" note currently in the DOM so a single pair
-// of window-level online/offline listeners can keep them all in sync,
-// instead of each exercise row wiring its own listener.
-const offlineNotes = new Set();
-
+// A single pair of window-level online/offline listeners keeps every
+// "needs internet" note in sync, instead of each exercise row wiring its
+// own listener. This queries the live DOM each time rather than keeping a
+// Set of element references: renderTodayTab wipes and rebuilds the whole
+// Today tab on every tab activation, and a manual swap wipes/rebuilds one
+// exercise row's `details` on every swap, so a persistent Set would just
+// accumulate references to detached (removed) notes forever over a long
+// session. A live querySelectorAll has no such leak — it only ever sees
+// notes that are actually still in the document.
 function syncOfflineNote(el) {
   el.hidden = navigator.onLine !== false;
 }
 
-function registerOfflineNote(el) {
-  offlineNotes.add(el);
-  syncOfflineNote(el);
-}
-
 function syncAllOfflineNotes() {
-  offlineNotes.forEach(syncOfflineNote);
+  document.querySelectorAll('.how-to-offline-note').forEach(syncOfflineNote);
 }
 
 window.addEventListener('online', syncAllOfflineNotes);
@@ -515,7 +514,7 @@ function renderHowToPanel(exercise) {
   const offlineNote = document.createElement('p');
   offlineNote.className = 'how-to-offline-note';
   offlineNote.textContent = 'These links need an internet connection.';
-  registerOfflineNote(offlineNote);
+  syncOfflineNote(offlineNote);
   panel.appendChild(offlineNote);
 
   return panel;
