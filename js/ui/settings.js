@@ -10,7 +10,8 @@
 //     heightCm: number,   // always stored canonically in metric
 //     weightKg: number,   // always stored canonically in metric
 //     age: number,
-//     lastBackupAt?: string,   // ISO timestamp — set by Task 16, read here defensively
+//     lastBackupDate?: string,  // 'YYYY-MM-DD' — set by the Export backup
+//       button (Task 17), read here for the last-backup line/nudge banner.
 //     groceryChecklist?: {     // weekly grocery checklist (Task 16) — no
 //       weekOf: 'YYYY-MM-DD',  // separate IndexedDB store; just a field here
 //       checkedItems: string[],  // GROCERY_LIST item strings (no id field
@@ -22,7 +23,7 @@
 // chosen; the imperial unit is purely a display/input convenience converted
 // at the form boundary.
 
-import { getSetting, putSetting } from '../db.js';
+import { getSetting, putSetting, exportAllData, importAllData } from '../db.js';
 import { GROCERY_LIST } from '../data/plan.js';
 
 const DEFAULT_HEIGHT_CM = 173;
@@ -127,6 +128,44 @@ function injectStyles() {
       color: var(--text-dim);
       font-size: 0.9rem;
       margin: 0;
+    }
+    .settings-backup-nudge {
+      color: var(--danger);
+      font-size: 0.9rem;
+      margin: 6px 0 0;
+      font-weight: 600;
+    }
+    .settings-backup-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .settings-backup-actions button,
+    .settings-backup-actions label {
+      min-height: var(--tap-min);
+    }
+    .settings-import-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0 12px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    .settings-import-label input[type="file"] {
+      display: none;
+    }
+    .settings-backup-actions button[type="button"] {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 1rem;
+      padding: 0 12px;
     }
     .grocery-week-of {
       color: var(--text-dim);
@@ -473,10 +512,146 @@ function renderGroceryChecklist(checklist) {
   return card;
 }
 
+// ---------------------------------------------------------------------------
+// Backup export/import (Task 17) — JSON dump of exportAllData()/importAllData()
+// (Task 2, js/db.js) wired to a download link and a file input. The
+// "last backup" staleness check reuses the same daysBetweenISO() helper the
+// grocery checklist (Task 16) uses above, on a separate `lastBackupDate`
+// field ('YYYY-MM-DD', stored the same read-merge-write way via putSetting).
+// ---------------------------------------------------------------------------
+
+const BACKUP_STALE_AFTER_DAYS = 7;
+
+/**
+ * Whether the stored backup date is missing or more than
+ * BACKUP_STALE_AFTER_DAYS days old.
+ * @param {string|undefined|null} lastBackupDate - 'YYYY-MM-DD', or absent.
+ * @param {string} today - 'YYYY-MM-DD'.
+ * @returns {boolean}
+ */
+function isBackupStale(lastBackupDate, today) {
+  return !lastBackupDate || daysBetweenISO(lastBackupDate, today) > BACKUP_STALE_AFTER_DAYS;
+}
+
+/**
+ * Builds the Backup card: an "Export backup" button (downloads a JSON dump
+ * of `exportAllData()` and stamps `settings.lastBackupDate`), an "Import
+ * backup" file input (confirms against the file's `exportedAt`, then calls
+ * `importAllData()` and reloads), and a "Last backup" line with a
+ * staleness nudge banner.
+ * @param {object|null} settings
+ * @param {HTMLElement} container - the Settings tab root; re-rendered after
+ *   a successful export so the last-backup line/nudge reflect the new date,
+ *   the same way the profile form's onSaved re-renders after a save.
+ * @returns {HTMLElement}
+ */
+function renderBackupCard(settings, container) {
+  const card = document.createElement('section');
+  card.className = 'settings-card';
+  card.setAttribute('data-settings-section', 'backup');
+
+  const heading = document.createElement('h2');
+  heading.textContent = 'Backup';
+  card.appendChild(heading);
+
+  const lastBackupLine = document.createElement('p');
+  lastBackupLine.className = 'settings-last-backup';
+  lastBackupLine.setAttribute('data-settings-field', 'last-backup');
+  lastBackupLine.textContent = settings?.lastBackupDate
+    ? `Last backup: ${settings.lastBackupDate}`
+    : 'Last backup: never';
+  card.appendChild(lastBackupLine);
+
+  if (isBackupStale(settings?.lastBackupDate, todayISO())) {
+    const nudge = document.createElement('p');
+    nudge.className = 'settings-backup-nudge';
+    nudge.setAttribute('data-settings-field', 'backup-nudge');
+    nudge.textContent = settings?.lastBackupDate
+      ? 'Your last backup is more than a week old — export a fresh one.'
+      : "You haven't backed up yet — export a backup so you don't lose your data.";
+    card.appendChild(nudge);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'settings-backup-actions';
+
+  const exportBtn = document.createElement('button');
+  exportBtn.type = 'button';
+  exportBtn.textContent = 'Export backup';
+  exportBtn.addEventListener('click', async () => {
+    exportBtn.disabled = true;
+    try {
+      const dump = await exportAllData();
+      const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `vtaper-backup-${todayISO()}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Revoke right after triggering the download (the click synchronously
+      // starts the download), so the blob URL doesn't leak.
+      URL.revokeObjectURL(url);
+
+      // Read-merge-write (same pattern as persistCheckedItems above) so this
+      // doesn't clobber fields changed elsewhere since `settings` was read.
+      const current = await getSetting();
+      await putSetting({ ...(current || {}), lastBackupDate: todayISO() });
+      await renderSettingsTab(container);
+    } finally {
+      exportBtn.disabled = false;
+    }
+  });
+  actions.appendChild(exportBtn);
+
+  const importLabel = document.createElement('label');
+  importLabel.className = 'settings-import-label';
+  importLabel.textContent = 'Import backup';
+
+  const importInput = document.createElement('input');
+  importInput.type = 'file';
+  importInput.accept = 'application/json,.json';
+  importInput.addEventListener('change', async () => {
+    const file = importInput.files && importInput.files[0];
+    // Reset immediately so re-selecting the same file still fires 'change'.
+    importInput.value = '';
+    if (!file) return;
+
+    let parsed;
+    try {
+      const text = await file.text();
+      parsed = JSON.parse(text);
+    } catch (err) {
+      window.alert(`Could not read that backup file: ${err.message}`);
+      return;
+    }
+
+    const exportedAt = parsed?.exportedAt
+      ? new Date(parsed.exportedAt).toLocaleString()
+      : 'an unknown date';
+    const confirmed = window.confirm(
+      `Import backup from ${exportedAt}? This replaces all current data on this device.`
+    );
+    if (!confirmed) return;
+
+    await importAllData(parsed);
+    location.reload();
+  });
+  importLabel.appendChild(importInput);
+  actions.appendChild(importLabel);
+
+  card.appendChild(actions);
+
+  return card;
+}
+
 /**
  * Renders the Settings tab into `container`: the profile form (pre-filled
- * from `getSetting()`, saved via `putSetting()` on submit) plus stub
- * "Backup" / "Last backup" containers that Task 16 fills in.
+ * from `getSetting()`, saved via `putSetting()` on submit), the Backup card
+ * (export/import + last-backup nudge, Task 17), and the weekly grocery
+ * checklist (Task 16).
  * @param {HTMLElement} container
  * @returns {Promise<void>}
  */
@@ -498,24 +673,8 @@ export async function renderSettingsTab(container) {
   });
   container.appendChild(form);
 
-  // --- Backup section (stub; filled in by Task 16) -------------------------
-  const backupCard = document.createElement('section');
-  backupCard.className = 'settings-card';
-  backupCard.setAttribute('data-settings-section', 'backup');
-
-  const backupHeading = document.createElement('h2');
-  backupHeading.textContent = 'Backup';
-  backupCard.appendChild(backupHeading);
-
-  const lastBackupLine = document.createElement('p');
-  lastBackupLine.className = 'settings-last-backup';
-  lastBackupLine.setAttribute('data-settings-field', 'last-backup');
-  lastBackupLine.textContent = settings?.lastBackupAt
-    ? `Last backup: ${new Date(settings.lastBackupAt).toLocaleString()}`
-    : 'Last backup: never';
-  backupCard.appendChild(lastBackupLine);
-
-  container.appendChild(backupCard);
+  // --- Backup section -------------------------------------------------------
+  container.appendChild(renderBackupCard(settings, container));
 
   // --- Weekly grocery checklist -------------------------------------------
   const groceryChecklist = await resolveGroceryChecklist(settings);

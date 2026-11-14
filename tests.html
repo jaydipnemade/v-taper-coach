@@ -14,8 +14,12 @@
     } from './js/data/plan.js';
     import {
       getSetting, putSetting,
+      getSessionLog, putSessionLog,
       getExerciseHistory, appendExercisePerformance,
-      getAllBodyMetrics, putBodyMetric,
+      getBodyMetric, getAllBodyMetrics, putBodyMetric,
+      getDietLog, putDietLog,
+      getAllCustomFoods, addCustomFood,
+      getCheckin, putCheckin,
       exportAllData, importAllData,
     } from './js/db.js';
 
@@ -116,6 +120,79 @@
       const after = await getAllBodyMetrics();
       return JSON.stringify(before) === JSON.stringify(after)
         || `before=${JSON.stringify(before)} after=${JSON.stringify(after)}`;
+    });
+
+    // Review Focus (Task 17): full round-trip across all 7 stores, not just
+    // bodyMetrics. Writes one real record into every store via db.js's own
+    // put functions, exports, re-imports into the same DB, then re-fetches
+    // each store and diffs against the literal record written (not just a
+    // before/after snapshot) — this is the regression guard that would catch
+    // exportAllData or importAllData silently dropping a store.
+    await check('Review Focus: exportAllData + importAllData round-trips all 7 stores', async () => {
+      const roundTripSessionLog = { id: 'rt_2026-03-03_mon', dayKey: 'mon', date: '2026-03-03', exercises: [] };
+      const roundTripExerciseId = 'round-trip-exercise';
+      const roundTripExerciseEntry = {
+        date: '2026-03-03', weekNumber: 9, sets: [{ weight: 30, reps: 10, rir: 2, isWarmup: false }],
+      };
+      const roundTripBodyMetric = { date: '2026-03-03', weightKg: 71.1, waistCm: 80.5, note: 'round-trip' };
+      const roundTripDietLog = {
+        date: '2026-03-03', checkedMealIds: ['m1'], addOn: null, hadBanana: false, customFoodIds: [],
+      };
+      const roundTripCustomFood = { name: 'round-trip food', kcal: 123, protein: 10 };
+      const roundTripCheckin = { weekNumber: 97, avgWeight: 71, avgWaist: 80, decision: 'test' };
+      const roundTripSettingsMarker = `rt-marker-${Date.now()}`;
+
+      const existingSettings = await getSetting();
+      await putSetting({ ...(existingSettings || {}), roundTripMarker: roundTripSettingsMarker });
+      await putSessionLog(roundTripSessionLog);
+      await appendExercisePerformance(roundTripExerciseId, roundTripExerciseEntry);
+      await putBodyMetric(roundTripBodyMetric);
+      await putDietLog(roundTripDietLog);
+      const customFoodId = await addCustomFood(roundTripCustomFood);
+      await putCheckin(roundTripCheckin);
+
+      const dump = await exportAllData();
+      await importAllData(dump);
+
+      const afterSettings = await getSetting();
+      const afterSessionLog = await getSessionLog(roundTripSessionLog.id);
+      const afterExerciseHistory = await getExerciseHistory(roundTripExerciseId);
+      const afterBodyMetric = await getBodyMetric(roundTripBodyMetric.date);
+      const afterDietLog = await getDietLog(roundTripDietLog.date);
+      const afterCustomFoods = await getAllCustomFoods();
+      const afterCheckin = await getCheckin(roundTripCheckin.weekNumber);
+
+      const problems = [];
+      if (afterSettings?.roundTripMarker !== roundTripSettingsMarker) {
+        problems.push(`settings: ${JSON.stringify(afterSettings)}`);
+      }
+      if (JSON.stringify(afterSessionLog) !== JSON.stringify(roundTripSessionLog)) {
+        problems.push(`sessionLogs: ${JSON.stringify(afterSessionLog)}`);
+      }
+      const lastHistoryEntry = afterExerciseHistory[afterExerciseHistory.length - 1];
+      if (JSON.stringify(lastHistoryEntry) !== JSON.stringify(roundTripExerciseEntry)) {
+        problems.push(`exerciseHistory: ${JSON.stringify(afterExerciseHistory)}`);
+      }
+      if (JSON.stringify(afterBodyMetric) !== JSON.stringify(roundTripBodyMetric)) {
+        problems.push(`bodyMetrics: ${JSON.stringify(afterBodyMetric)}`);
+      }
+      if (JSON.stringify(afterDietLog) !== JSON.stringify(roundTripDietLog)) {
+        problems.push(`dietLog: ${JSON.stringify(afterDietLog)}`);
+      }
+      const matchedCustomFood = afterCustomFoods.find((f) => f.id === customFoodId);
+      if (
+        !matchedCustomFood
+        || matchedCustomFood.name !== roundTripCustomFood.name
+        || matchedCustomFood.kcal !== roundTripCustomFood.kcal
+        || matchedCustomFood.protein !== roundTripCustomFood.protein
+      ) {
+        problems.push(`customFoods: ${JSON.stringify(afterCustomFoods)}`);
+      }
+      if (JSON.stringify(afterCheckin) !== JSON.stringify(roundTripCheckin)) {
+        problems.push(`checkins: ${JSON.stringify(afterCheckin)}`);
+      }
+
+      return problems.length === 0 || problems.join(' | ');
     });
 
     // --- js/week.js (Task 3) ----------------------------------------------
