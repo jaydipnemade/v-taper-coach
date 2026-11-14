@@ -1,0 +1,158 @@
+/* css/styles.css
+   V-Taper Coach — dark theme shell styles.
+   No business logic here; this file only lays out the app chrome (mount
+   point, tab panels, bottom tabbar) that later tasks fill with content.
+
+   Accent color: #35e0a1 (a vivid mint/emerald green).
+   Rationale: fitness/training apps read well with a "go" green, and this
+   particular shade stays legible on a phone screen at low brightness in a
+   dim gym while still feeling energetic rather than clinical.
+   Contrast check: #35e0a1 against the --bg background (#0b0e0d) measures
+   ~11.4:1 by the WCAG relative-luminance formula — well above the 4.5:1
+   minimum for normal body text, so it is safe to use for text as well as
+   interactive elements, not just accents/borders.
+*/
+
+:root {
+  --bg: #0b0e0d;           /* near-black page background */
+  --surface: #161a19;      /* cards, tabbar, raised panels */
+  --surface-alt: #1f2523;  /* slightly lighter surface for hover/active states */
+  --border: #2a3230;       /* subtle separators */
+  --text: #eef1f0;         /* primary text */
+  --text-dim: #9aa39f;     /* secondary / muted text */
+  --accent: #35e0a1;       /* single accent color — see note above */
+  --accent-text: #04140d;  /* text drawn on top of an accent-filled control */
+  --danger: #ff6b6b;       /* reserved for destructive actions/warnings */
+
+  --tap-min: 44px;         /* iOS minimum comfortable tap target */
+  --radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  /* Guard against the no-horizontal-scroll constraint at narrow widths. */
+  overflow-x: hidden;
+  width: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  /* Respect iOS safe areas at the page edges too (notch/home-indicator). */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  /* Reserve space for the fixed tabbar so content isn't hidden behind it. */
+  padding-bottom: calc(var(--tap-min) + env(safe-area-inset-bottom) + 8px);
+}
+
+#tab-panels {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  padding: 16px;
+}
+
+section[data-tab-panel] {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Only the active tab's section is shown; router.js toggles [hidden]. */
+section[data-tab-panel][hidden] {
+  display: none;
+}
+
+#tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  z-index: 10;
+}
+
+#tabbar button {
+  flex: 1 1 0;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 4px;
+}
+
+#tabbar button[aria-current="true"],
+#tabbar button.is-active {
+  color: var(--accent);
+}
+
+/* Generic form controls */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  color: var(--text);
+}
+
+button {
+  cursor: pointer;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* iOS tap-target minimums for interactive controls. */
+button,
+input[type="checkbox"] {
+  min-height: var(--tap-min);
+  min-width: var(--tap-min);
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+a {
+  color: var(--accent);
+}
+
+/* Large-number utility for stat displays (today's lift numbers, body-weight,
+   calorie totals, etc.) — later tasks apply this class, no new colors. */
+.stat-number {
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

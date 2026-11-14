@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>V-Taper Coach</title>
+
+  <!-- PWA / iOS integration -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0b0e0d" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="V-Taper" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <link rel="icon" href="icons/icon-192.png" />
+
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <!-- Single mount point; ui/*.js modules render into the #tab-* sections below. -->
+  <div id="app">
+    <main id="tab-panels">
+      <section id="tab-today" data-tab-panel="today"></section>
+      <section id="tab-diet" data-tab-panel="diet" hidden></section>
+      <section id="tab-body" data-tab-panel="body" hidden></section>
+      <section id="tab-progress" data-tab-panel="progress" hidden></section>
+      <section id="tab-settings" data-tab-panel="settings" hidden></section>
+    </main>
+
+    <nav id="tabbar" aria-label="Main navigation">
+      <button type="button" data-tab="today" aria-label="Today">Today</button>
+      <button type="button" data-tab="diet" aria-label="Diet">Diet</button>
+      <button type="button" data-tab="body" aria-label="Body">Body</button>
+      <button type="button" data-tab="progress" aria-label="Progress">Progress</button>
+      <button type="button" data-tab="settings" aria-label="Settings">Settings</button>
+    </nav>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
