@@ -283,6 +283,81 @@
       );
     });
 
+    // --- js/timer.js (Task 5) ----------------------------------------------
+    // Loaded dynamically (see Task 3 note above) so a missing module fails only these checks.
+    // sessionStorage persists across reloads of this tab, so every timer test starts from a
+    // cleared key and clears again afterward; re-running this page never sees a previous run's timer.
+    const timer = await import('./js/timer.js').catch((err) => ({ loadError: err.message }));
+    const TIMER_KEY = 'vtaper-rest-timer-end';
+    const resetTimer = () => { try { timer.clearRestTimer(); } catch (_) { /* module may be missing */ } };
+
+    await check('computeRemainingMs: end equals now is 0', () => eq(timer.computeRemainingMs(1000, 1000), 0));
+    await check('computeRemainingMs: end 1000ms in future is 1000', () => eq(timer.computeRemainingMs(2000, 1000), 1000));
+    await check('computeRemainingMs: already-elapsed end is clamped to 0, never negative', () => eq(timer.computeRemainingMs(500, 1000), 0));
+
+    await check('startRestTimer then getActiveRestTimer returns the same end timestamp', () => {
+      resetTimer();
+      const end = timer.startRestTimer(60000);
+      const active = timer.getActiveRestTimer();
+      resetTimer();
+      return (active === end && typeof end === 'number') || `start=${end}, active=${active}`;
+    });
+
+    await check('startRestTimer stores the end timestamp under sessionStorage key', () => {
+      resetTimer();
+      const end = timer.startRestTimer(60000);
+      const raw = sessionStorage.getItem(TIMER_KEY);
+      resetTimer();
+      return Number(raw) === end || `raw=${raw}, end=${end}`;
+    });
+
+    await check('clearRestTimer then getActiveRestTimer is null', () => {
+      timer.startRestTimer(60000);
+      timer.clearRestTimer();
+      return eq(timer.getActiveRestTimer(), null);
+    });
+
+    await check('getActiveRestTimer with no timer active is null', () => {
+      resetTimer();
+      return eq(timer.getActiveRestTimer(), null);
+    });
+
+    await check('adjustRestTimer with no timer active returns null', () => {
+      resetTimer();
+      return eq(timer.adjustRestTimer(15000), null);
+    });
+
+    await check('adjustRestTimer(+15000) increases the stored end by 15000', () => {
+      resetTimer();
+      const start = timer.startRestTimer(60000);
+      const adjusted = timer.adjustRestTimer(15000);
+      const stored = timer.getActiveRestTimer();
+      resetTimer();
+      return (adjusted === start + 15000 && stored === start + 15000)
+        || `start=${start}, adjusted=${adjusted}, stored=${stored}`;
+    });
+
+    await check('adjustRestTimer(-15000) on a short timer clamps so remaining is never negative', () => {
+      resetTimer();
+      timer.startRestTimer(5000);
+      const adjusted = timer.adjustRestTimer(-15000);
+      const remaining = timer.computeRemainingMs(timer.getActiveRestTimer());
+      resetTimer();
+      return (typeof adjusted === 'number' && remaining === 0)
+        || `adjusted=${adjusted}, remaining=${remaining}`;
+    });
+
+    // Review Focus: iOS Safari suspends background JS, so the timer must derive remaining time from
+    // the absolute end timestamp. Backgrounding past the full rest duration must read as fully
+    // elapsed (0), not as a stale paused value.
+    await check('Review Focus: backgrounded past full duration reads 0 remaining (not paused, not negative)', () => {
+      resetTimer();
+      timer.startRestTimer(5000);
+      const remaining = timer.computeRemainingMs(timer.getActiveRestTimer(), Date.now() + 10000);
+      resetTimer();
+      return eq(remaining, 0);
+    });
+
     for (const { name, ok, detail } of checks) {
       const li = document.createElement('li');
       li.textContent = `${ok ? 'PASS' : 'FAIL'} - ${name}${ok ? '' : ` (${detail})`}`;
