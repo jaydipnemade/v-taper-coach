@@ -92,6 +92,11 @@ function escapeRegExp(str) {
  * caller — the spec frames swaps as "similar protein" equivalents, not a
  * recalculation.
  *
+ * If the matched text starts with an uppercase letter (e.g. `fromFood` is
+ * the first word of a sentence, as in "Chicken tikka..."), the replacement
+ * is capitalized to match, rather than silently lowercasing the start of
+ * the sentence.
+ *
  * @param {string} mealItemText
  * @param {string} fromFood
  * @param {string} toFood
@@ -99,5 +104,9 @@ function escapeRegExp(str) {
  */
 export function applyProteinSwap(mealItemText, fromFood, toFood) {
   const pattern = new RegExp(escapeRegExp(fromFood), 'gi');
-  return mealItemText.replace(pattern, toFood);
+  return mealItemText.replace(pattern, (match) => {
+    const firstChar = match.charAt(0);
+    const wasCapitalized = firstChar !== firstChar.toLowerCase() && firstChar === firstChar.toUpperCase();
+    return wasCapitalized ? toFood.charAt(0).toUpperCase() + toFood.slice(1) : toFood;
+  });
 }

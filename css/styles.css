@@ -127,12 +127,14 @@ button {
 
 /* iOS tap-target minimums for interactive controls. */
 button,
-input[type="checkbox"] {
+input[type="checkbox"],
+input[type="radio"] {
   min-height: var(--tap-min);
   min-width: var(--tap-min);
 }
 
-input[type="checkbox"] {
+input[type="checkbox"],
+input[type="radio"] {
   accent-color: var(--accent);
 }
 

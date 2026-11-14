@@ -384,6 +384,14 @@
       'fish curry (150 g breast)',
     ));
 
+    // Review Focus: a sentence-initial match (capitalized, as most MEAL_PLAN item
+    // strings start) must swap in a capitalized replacement, not lowercase the
+    // start of the sentence.
+    await check("applyProteinSwap: preserves sentence-initial capitalization ('Chicken tikka...' chicken->fish)", () => eq(
+      nutrition.applyProteinSwap('Chicken tikka (150 g breast, 1 tsp oil)', 'chicken', 'fish'),
+      'Fish tikka (150 g breast, 1 tsp oil)',
+    ));
+
     for (const { name, ok, detail } of checks) {
       const li = document.createElement('li');
       li.textContent = `${ok ? 'PASS' : 'FAIL'} - ${name}${ok ? '' : ` (${detail})`}`;
