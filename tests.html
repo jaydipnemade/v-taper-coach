@@ -212,7 +212,11 @@
     await check('getWeekNumber: well past week 12 (2027-06-01) is null, not clamped to 12', () => eq(week.getWeekNumber(START, '2027-06-01'), null));
 
     await check('getPhaseForWeek(1).phase is intro', () => eq(week.getPhaseForWeek(1).phase, 'intro'));
-    await check('getPhaseForWeek(6).setMultiplier is 0.5 (deload)', () => eq(week.getPhaseForWeek(6).setMultiplier, 0.5));
+    await check('getPhaseForWeek(2).phase is build1', () => eq(week.getPhaseForWeek(2).phase, 'build1'));
+    await check('getPhaseForWeek(6).phase is deload, setMultiplier is 0.5', () => eq(
+      [week.getPhaseForWeek(6).phase, week.getPhaseForWeek(6).setMultiplier], ['deload', 0.5],
+    ));
+    await check('getPhaseForWeek(7).phase is build2', () => eq(week.getPhaseForWeek(7).phase, 'build2'));
     await check('getPhaseForWeek(12).phase is deload2', () => eq(week.getPhaseForWeek(12).phase, 'deload2'));
     await check('getPhaseForWeek(13) is null', () => eq(week.getPhaseForWeek(13), null));
     await check('getPhaseForWeek(0) is null', () => eq(week.getPhaseForWeek(0), null));
@@ -595,15 +599,19 @@
       return eq(r, { avgWeight: 71, avgWaist: 80, avgSteps: 9000, avgSleep: null });
     });
 
+    const passed = checks.filter((c) => c.ok).length;
+    const failed = checks.length - passed;
+    const summary = document.createElement('li');
+    summary.id = 'summary';
+    summary.style.fontWeight = 'bold';
+    summary.textContent = `Total: ${checks.length} | Passed: ${passed} | Failed: ${failed}`;
+    results.appendChild(summary);
+
     for (const { name, ok, detail } of checks) {
       const li = document.createElement('li');
       li.textContent = `${ok ? 'PASS' : 'FAIL'} - ${name}${ok ? '' : ` (${detail})`}`;
       results.appendChild(li);
     }
-    const passed = checks.filter((c) => c.ok).length;
-    const summary = document.createElement('li');
-    summary.textContent = `${passed}/${checks.length} passed`;
-    results.appendChild(summary);
   </script>
 </body>
 </html>
