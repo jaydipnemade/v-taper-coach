@@ -8,7 +8,7 @@
 // warm-up checklist persistence — this task only builds the read-only
 // session/exercise-list structure those features hang off of.
 
-import { DAYS, WARMUP_STEPS } from '../data/plan.js';
+import { DAYS, WARMUP_STEPS, LOWER_BACK_TWINGE_SWAPS } from '../data/plan.js';
 import { getWeekInfo } from '../week.js';
 import {
   getSetting,
@@ -18,7 +18,13 @@ import {
   putSessionLog,
 } from '../db.js';
 import { recommendNextSession, getLastPerformance } from '../progression.js';
-import { startRestTimer } from '../timer.js';
+import {
+  computeRemainingMs,
+  getActiveRestTimer,
+  clearRestTimer,
+  adjustRestTimer,
+  startRestTimer,
+} from '../timer.js';
 
 // ---------------------------------------------------------------------------
 // Global exercise-by-id lookup, built once across ALL days (not just
@@ -417,7 +423,21 @@ function renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, det
         weekNumber: sessionCtx.draft.weekNumber,
         sets: exState.sets.filter(Boolean),
       });
-      startRestTimer(parseRestMs(exercise.rest));
+      const restMs = parseRestMs(exercise.rest);
+      if (restMs > 0) {
+        // rest === '—' (the single-block cardio exercise, e.g.
+        // incline-treadmill-walk) parses to 0ms — skip starting a rest
+        // timer entirely rather than create one that's already expired the
+        // instant it exists, which would otherwise instantly beep/flash the
+        // new floating widget for what is really a 20-minute cardio block.
+        primeRestTimerAudio();
+        try {
+          startRestTimer(restMs);
+        } catch (err) {
+          // sessionStorage blocked — no rest timer this session, non-fatal.
+        }
+        pollRestTimer();
+      }
       exState.finalized = true;
       await putSessionLog(sessionCtx.draft);
     }
@@ -427,6 +447,408 @@ function renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, det
   row.appendChild(logBtn);
 
   return row;
+}
+
+// ---------------------------------------------------------------------------
+// "How to do it" panel — exercise.cue text (always available offline) plus
+// Google/YouTube search links. The links are real <a href> elements at all
+// times (never disabled); only a small "needs internet" note next to them
+// toggles with navigator.onLine, re-checked live via the online/offline
+// window events.
+// ---------------------------------------------------------------------------
+
+// Tracks every "needs internet" note currently in the DOM so a single pair
+// of window-level online/offline listeners can keep them all in sync,
+// instead of each exercise row wiring its own listener.
+const offlineNotes = new Set();
+
+function syncOfflineNote(el) {
+  el.hidden = navigator.onLine !== false;
+}
+
+function registerOfflineNote(el) {
+  offlineNotes.add(el);
+  syncOfflineNote(el);
+}
+
+function syncAllOfflineNotes() {
+  offlineNotes.forEach(syncOfflineNote);
+}
+
+window.addEventListener('online', syncAllOfflineNotes);
+window.addEventListener('offline', syncAllOfflineNotes);
+
+function renderHowToPanel(exercise) {
+  const panel = document.createElement('div');
+  panel.className = 'how-to-panel';
+
+  const title = document.createElement('h4');
+  title.className = 'how-to-title';
+  title.textContent = 'How to do it';
+  panel.appendChild(title);
+
+  const cueEl = document.createElement('p');
+  cueEl.className = 'how-to-cue';
+  cueEl.textContent = exercise.cue || 'No form cue recorded for this exercise yet.';
+  panel.appendChild(cueEl);
+
+  const linksRow = document.createElement('div');
+  linksRow.className = 'how-to-links';
+
+  const googleLink = document.createElement('a');
+  googleLink.className = 'how-to-link';
+  googleLink.href = `https://www.google.com/search?q=${encodeURIComponent(`${exercise.name} proper form`)}`;
+  googleLink.target = '_blank';
+  googleLink.rel = 'noopener noreferrer';
+  googleLink.textContent = 'Google: proper form';
+
+  const youtubeLink = document.createElement('a');
+  youtubeLink.className = 'how-to-link';
+  youtubeLink.href = `https://www.youtube.com/results?search_query=${encodeURIComponent(`${exercise.name} form tutorial`)}`;
+  youtubeLink.target = '_blank';
+  youtubeLink.rel = 'noopener noreferrer';
+  youtubeLink.textContent = 'YouTube: form tutorial';
+
+  linksRow.append(googleLink, youtubeLink);
+  panel.appendChild(linksRow);
+
+  const offlineNote = document.createElement('p');
+  offlineNote.className = 'how-to-offline-note';
+  offlineNote.textContent = 'These links need an internet connection.';
+  registerOfflineNote(offlineNote);
+  panel.appendChild(offlineNote);
+
+  return panel;
+}
+
+// ---------------------------------------------------------------------------
+// Swap control — a menu of exercise.swaps alternatives, with the
+// LOWER_BACK_TWINGE_SWAPS entry (if any, and if it resolves to real
+// PlanExercise data) highlighted as the back-friendly pick. Picking an
+// option hands the chosen id back to the caller, which re-renders the row
+// with the swapped exercise's own full data — the same "whatever exercise
+// object is attached to this slot is the source of truth" pattern
+// resolveDayExercises already uses for the automatic phase-triggered swaps.
+//
+// Note: two of the three LOWER_BACK_TWINGE_SWAPS targets ('glute-bridge-machine'
+// for hip-thrust, 'machine-row' for t-bar-row) have no corresponding
+// PlanExercise entry anywhere in plan.js as of this task — a data gap in
+// that (reviewed/approved, out of this task's scope) file. Those are
+// filtered out defensively rather than offered as a broken option; see the
+// task report for detail.
+// ---------------------------------------------------------------------------
+
+function getSwapOptions(exercise) {
+  const ids = new Set(exercise.swaps ?? []);
+  const backFriendlyId = LOWER_BACK_TWINGE_SWAPS[exercise.id];
+  if (backFriendlyId) ids.add(backFriendlyId);
+
+  return Array.from(ids)
+    .filter((id) => Boolean(EXERCISE_BY_ID[id]))
+    .map((id) => ({
+      id,
+      name: EXERCISE_BY_ID[id].name,
+      isBackFriendly: id === backFriendlyId,
+    }));
+}
+
+function renderSwapControl(exercise, onSwap) {
+  const wrap = document.createElement('div');
+  wrap.className = 'swap-control';
+
+  const title = document.createElement('h4');
+  title.className = 'swap-title';
+  title.textContent = 'Swap exercise';
+  wrap.appendChild(title);
+
+  const options = getSwapOptions(exercise);
+
+  if (options.length === 0) {
+    const none = document.createElement('p');
+    none.className = 'swap-none';
+    none.textContent = 'No alternatives available for this exercise.';
+    wrap.appendChild(none);
+    return wrap;
+  }
+
+  const optionsRow = document.createElement('div');
+  optionsRow.className = 'swap-options';
+  options.forEach((option) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = option.isBackFriendly
+      ? 'swap-option-btn swap-option-recommended'
+      : 'swap-option-btn';
+    btn.textContent = option.isBackFriendly
+      ? `${option.name} (lower-back friendly)`
+      : option.name;
+    btn.addEventListener('click', () => onSwap(option.id));
+    optionsRow.appendChild(btn);
+  });
+  wrap.appendChild(optionsRow);
+
+  return wrap;
+}
+
+// ---------------------------------------------------------------------------
+// Floating rest-timer widget.
+//
+// A page-level singleton living in document.body (not inside the Today
+// tab's own container, which gets wiped and rebuilt every time the tab is
+// re-rendered) so it keeps counting down and stays visible even if the
+// trainee switches to another tab mid-rest. The timer's actual state lives
+// in sessionStorage via js/timer.js (computeRemainingMs/getActiveRestTimer/
+// clearRestTimer/adjustRestTimer) — this widget only polls and displays it,
+// and every call that touches that sessionStorage-backed state is wrapped
+// in try/catch here, since some browser privacy modes throw on storage
+// access and that must not crash the whole Today tab.
+//
+// Remaining time is always recomputed from the stored end timestamp (never
+// from counting ticks), so backgrounding the tab past the rest duration and
+// returning shows 0 immediately rather than a stale/negative count.
+// ---------------------------------------------------------------------------
+
+const REST_TIMER_POLL_MS = 500;
+const REST_TIMER_FLASH_MS = 600;
+const REST_TIMER_BEEP_SECONDS = 0.18;
+
+let restTimerWidgetEl = null;
+let restTimerTimeEl = null;
+let restTimerFlashEl = null;
+let restTimerWakeLock = null;
+let restTimerAudioCtx = null;
+
+// The end timestamp this widget instance is currently tracking, and whether
+// it has ever observed that timer with remaining > 0. A fresh 0ms timer (or
+// one that had already fully elapsed before this widget instance first saw
+// it — e.g. after a page reload) is never observed positive, so it's
+// cleared silently with no beep/flash instead of looking like it "just
+// finished" the instant it appears. (Belt-and-suspenders: the logger below
+// also skips starting a rest timer at all when the parsed rest duration is
+// 0, which is the actual fix for the '—'-rest cardio-exercise case from the
+// Task 10 handoff — this is just a second line of defense.)
+let restTimerTrackedEnd = null;
+let restTimerObservedPositive = false;
+
+function formatRemaining(ms) {
+  const totalSeconds = Math.ceil(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function getRestTimerAudioCtx() {
+  if (restTimerAudioCtx) return restTimerAudioCtx;
+  const Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return null;
+  try {
+    restTimerAudioCtx = new Ctor();
+  } catch (err) {
+    restTimerAudioCtx = null;
+  }
+  return restTimerAudioCtx;
+}
+
+/**
+ * Called from inside the "Log set" click handler — a genuine user gesture —
+ * so the AudioContext gets created/resumed while gesture-triggered autoplay
+ * restrictions still allow it. By the time the timer actually hits 0 (from
+ * an async setInterval callback, not a gesture), it's already running.
+ */
+function primeRestTimerAudio() {
+  try {
+    const ctx = getRestTimerAudioCtx();
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+  } catch (err) {
+    // Web Audio unavailable/blocked — the timer still works, just silently.
+  }
+}
+
+function playRestTimerBeep() {
+  try {
+    const ctx = getRestTimerAudioCtx();
+    if (!ctx) return;
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.value = 880;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + REST_TIMER_BEEP_SECONDS);
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + REST_TIMER_BEEP_SECONDS + 0.02);
+  } catch (err) {
+    // Non-fatal — a silent timer is still a working timer.
+  }
+}
+
+function flashRestTimerOverlay() {
+  if (!restTimerFlashEl) return;
+  restTimerFlashEl.classList.add('is-active');
+  setTimeout(() => {
+    restTimerFlashEl.classList.remove('is-active');
+  }, REST_TIMER_FLASH_MS);
+}
+
+async function requestRestTimerWakeLock() {
+  if (restTimerWakeLock || !('wakeLock' in navigator)) return;
+  try {
+    restTimerWakeLock = await navigator.wakeLock.request('screen');
+    restTimerWakeLock.addEventListener('release', () => {
+      restTimerWakeLock = null;
+    });
+  } catch (err) {
+    // Permission denied, page not visible, unsupported, etc — non-fatal.
+    restTimerWakeLock = null;
+  }
+}
+
+async function releaseRestTimerWakeLock() {
+  const lock = restTimerWakeLock;
+  restTimerWakeLock = null;
+  if (!lock) return;
+  try {
+    await lock.release();
+  } catch (err) {
+    // Already released / unsupported — ignore.
+  }
+}
+
+function showRestTimerWidget() {
+  if (restTimerWidgetEl) restTimerWidgetEl.hidden = false;
+}
+
+function hideRestTimerWidget() {
+  if (restTimerWidgetEl) restTimerWidgetEl.hidden = true;
+}
+
+function pollRestTimer() {
+  let end;
+  try {
+    end = getActiveRestTimer();
+  } catch (err) {
+    // sessionStorage blocked — fail closed: no timer UI, no crash.
+    return;
+  }
+
+  if (end === null) {
+    if (restTimerTrackedEnd !== null) {
+      restTimerTrackedEnd = null;
+      restTimerObservedPositive = false;
+      hideRestTimerWidget();
+      releaseRestTimerWakeLock();
+    }
+    return;
+  }
+
+  if (end !== restTimerTrackedEnd) {
+    restTimerTrackedEnd = end;
+    restTimerObservedPositive = false;
+  }
+
+  const remaining = computeRemainingMs(end);
+
+  if (remaining > 0) {
+    restTimerObservedPositive = true;
+    showRestTimerWidget();
+    if (restTimerTimeEl) restTimerTimeEl.textContent = formatRemaining(remaining);
+    requestRestTimerWakeLock();
+    return;
+  }
+
+  // remaining === 0: only beep/flash if this widget instance actually
+  // watched it count down from > 0 at an earlier poll.
+  if (restTimerObservedPositive) {
+    if (restTimerTimeEl) restTimerTimeEl.textContent = formatRemaining(0);
+    showRestTimerWidget();
+    playRestTimerBeep();
+    flashRestTimerOverlay();
+  }
+
+  try {
+    clearRestTimer();
+  } catch (err) {
+    // Non-fatal — the next poll will just see the same stale end again.
+  }
+  restTimerTrackedEnd = null;
+  restTimerObservedPositive = false;
+  hideRestTimerWidget();
+  releaseRestTimerWakeLock();
+}
+
+function adjustAndRefreshRestTimer(deltaMs) {
+  try {
+    adjustRestTimer(deltaMs);
+  } catch (err) {
+    // sessionStorage blocked — nothing to adjust.
+  }
+  pollRestTimer();
+}
+
+function buildRestTimerWidget() {
+  const widget = document.createElement('div');
+  widget.id = 'rest-timer-widget';
+  widget.className = 'rest-timer-widget';
+  widget.hidden = true;
+
+  const label = document.createElement('span');
+  label.className = 'rest-timer-label';
+  label.textContent = 'Rest';
+
+  const time = document.createElement('span');
+  time.className = 'rest-timer-time';
+  time.textContent = '0:00';
+
+  const minusBtn = document.createElement('button');
+  minusBtn.type = 'button';
+  minusBtn.className = 'rest-timer-btn';
+  minusBtn.textContent = '−15s';
+  minusBtn.setAttribute('aria-label', 'Subtract 15 seconds from rest timer');
+  minusBtn.addEventListener('click', () => adjustAndRefreshRestTimer(-15000));
+
+  const plusBtn = document.createElement('button');
+  plusBtn.type = 'button';
+  plusBtn.className = 'rest-timer-btn';
+  plusBtn.textContent = '+15s';
+  plusBtn.setAttribute('aria-label', 'Add 15 seconds to rest timer');
+  plusBtn.addEventListener('click', () => adjustAndRefreshRestTimer(15000));
+
+  widget.append(label, time, minusBtn, plusBtn);
+
+  restTimerWidgetEl = widget;
+  restTimerTimeEl = time;
+
+  const flash = document.createElement('div');
+  flash.id = 'rest-timer-flash';
+  flash.className = 'rest-timer-flash';
+  restTimerFlashEl = flash;
+
+  document.body.append(widget, flash);
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      pollRestTimer();
+    }
+  });
+}
+
+/**
+ * Idempotent setup, called every time the Today tab renders. Builds the
+ * widget and starts the poll loop once; on subsequent calls (navigating
+ * back to Today) it just does an immediate sync.
+ */
+function ensureRestTimerWidget() {
+  if (restTimerWidgetEl) {
+    pollRestTimer();
+    return;
+  }
+  buildRestTimerWidget();
+  pollRestTimer();
+  setInterval(pollRestTimer, REST_TIMER_POLL_MS);
 }
 
 // ---------------------------------------------------------------------------
@@ -610,6 +1032,120 @@ function injectStyles() {
       padding: 4px 10px;
       font-weight: 600;
     }
+    .how-to-panel {
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+      margin-bottom: 10px;
+    }
+    .how-to-title,
+    .swap-title {
+      margin: 0 0 6px;
+      font-size: 0.9rem;
+    }
+    .how-to-cue {
+      color: var(--text-dim);
+      font-size: 0.85rem;
+      margin: 0 0 8px;
+    }
+    .how-to-links {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .how-to-link {
+      min-height: var(--tap-min);
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 4px 10px;
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.85rem;
+    }
+    .how-to-offline-note {
+      margin: 6px 0 0;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      font-style: italic;
+    }
+    .swap-control {
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+      margin-bottom: 10px;
+    }
+    .swap-options {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .swap-option-btn {
+      min-height: var(--tap-min);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface-alt);
+      color: inherit;
+      padding: 4px 10px;
+      font-size: 0.85rem;
+    }
+    .swap-option-recommended {
+      border-color: var(--accent);
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .swap-none {
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      margin: 0;
+    }
+    .rest-timer-widget {
+      position: fixed;
+      left: 50%;
+      bottom: calc(var(--tap-min) + env(safe-area-inset-bottom) + 16px);
+      transform: translateX(-50%);
+      z-index: 500;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--surface);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+      padding: 8px 14px;
+    }
+    .rest-timer-widget[hidden] {
+      display: none;
+    }
+    .rest-timer-label {
+      font-weight: 600;
+      color: var(--accent);
+    }
+    .rest-timer-time {
+      font-size: 1.3rem;
+      font-weight: 700;
+      min-width: 52px;
+      text-align: center;
+    }
+    .rest-timer-btn {
+      min-height: var(--tap-min);
+      min-width: var(--tap-min);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface-alt);
+      color: inherit;
+    }
+    .rest-timer-flash {
+      position: fixed;
+      inset: 0;
+      background: var(--accent);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 600;
+      transition: opacity 0.15s ease;
+    }
+    .rest-timer-flash.is-active {
+      opacity: 0.35;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -618,13 +1154,9 @@ function injectStyles() {
 // Rendering.
 // ---------------------------------------------------------------------------
 
-function renderExerciseRow(exercise, phaseInfo, sessionCtx) {
+function renderExerciseRow(initialExercise, phaseInfo, sessionCtx) {
   const row = document.createElement('div');
   row.className = 'exercise-row';
-
-  const sets = adjustedSets(exercise, phaseInfo);
-  const reps = formatReps(exercise);
-  const rir = displayRir(exercise, phaseInfo);
 
   const header = document.createElement('button');
   header.type = 'button';
@@ -633,40 +1165,86 @@ function renderExerciseRow(exercise, phaseInfo, sessionCtx) {
 
   const nameEl = document.createElement('span');
   nameEl.className = 'exercise-name';
-  nameEl.textContent = exercise.name;
 
   const metaEl = document.createElement('span');
   metaEl.className = 'exercise-meta';
-  const metaText = `${sets} × ${reps} · Rest ${exercise.rest} · RIR ${rir}${lastSetRirNote(exercise, phaseInfo)}`;
-  metaEl.textContent = metaText;
 
-  header.append(nameEl, metaEl);
+  const notesEl = document.createElement('span');
+  notesEl.className = 'exercise-notes';
+  notesEl.hidden = true;
 
-  if (exercise.notes) {
-    const notesEl = document.createElement('span');
-    notesEl.className = 'exercise-notes';
-    notesEl.textContent = exercise.notes;
-    header.appendChild(notesEl);
-  }
+  header.append(nameEl, metaEl, notesEl);
 
   const details = document.createElement('div');
   details.className = 'exercise-details';
   details.hidden = true;
-  details.dataset.exerciseId = exercise.id;
+
+  // currentExercise tracks whichever PlanExercise data this slot is showing
+  // right now — the row's own exercise.id, or a manually swapped-in
+  // alternative's own id/data after the trainee picks one from the swap
+  // control below. Everything downstream (header text, the how-to-do-it
+  // cue/links, the swap menu's own options, and the set logger's history
+  // reads/writes) is driven off whatever currentExercise currently is, the
+  // same "whatever data is attached to this slot is the source of truth"
+  // pattern resolveDayExercises already uses for the automatic phase swaps.
+  let currentExercise = initialExercise;
+  let loggerLoaded = false;
+  let loggerContainer = null;
+
+  function updateHeader() {
+    const sets = adjustedSets(currentExercise, phaseInfo);
+    const reps = formatReps(currentExercise);
+    const rir = displayRir(currentExercise, phaseInfo);
+    nameEl.textContent = currentExercise.name;
+    metaEl.textContent = `${sets} × ${reps} · Rest ${currentExercise.rest} · RIR ${rir}${lastSetRirNote(currentExercise, phaseInfo)}`;
+    if (currentExercise.notes) {
+      notesEl.textContent = currentExercise.notes;
+      notesEl.hidden = false;
+    } else {
+      notesEl.hidden = true;
+    }
+    details.dataset.exerciseId = currentExercise.id;
+  }
+
+  function loadLoggerIfNeeded() {
+    if (loggerLoaded) return;
+    loggerLoaded = true;
+    renderLoggerSection(loggerContainer, currentExercise, phaseInfo, sessionCtx);
+  }
+
+  function handleSwap(newExerciseId) {
+    const newData = EXERCISE_BY_ID[newExerciseId];
+    if (!newData) return; // defensive: orphan id, nothing to swap to
+    currentExercise = { ...newData, slotOrder: initialExercise.slotOrder };
+    updateHeader();
+    rebuildDetailsContents();
+    if (!details.hidden) loadLoggerIfNeeded();
+  }
+
+  function rebuildDetailsContents() {
+    details.innerHTML = '';
+    details.appendChild(renderHowToPanel(currentExercise));
+    details.appendChild(renderSwapControl(currentExercise, handleSwap));
+    loggerContainer = document.createElement('div');
+    loggerContainer.className = 'logger-container';
+    details.appendChild(loggerContainer);
+    loggerLoaded = false;
+  }
 
   // Lazily build the set logger the first time this row is expanded, per
   // the brief's "when expanded, shows..." — avoids an upfront
-  // getExerciseHistory() round-trip per exercise on every tab render.
-  let loggerLoaded = false;
+  // getExerciseHistory() round-trip per exercise on every tab render. The
+  // how-to-do-it panel and swap control are cheap synchronous DOM (no
+  // IndexedDB reads), so those are built eagerly below instead.
   header.addEventListener('click', () => {
     const expanded = header.getAttribute('aria-expanded') === 'true';
     header.setAttribute('aria-expanded', String(!expanded));
     details.hidden = expanded;
-    if (!expanded && !loggerLoaded) {
-      loggerLoaded = true;
-      renderLoggerSection(details, exercise, phaseInfo, sessionCtx);
-    }
+    if (!expanded) loadLoggerIfNeeded();
   });
+
+  updateHeader();
+  rebuildDetailsContents();
 
   row.append(header, details);
   return row;
@@ -726,6 +1304,7 @@ function renderTrainingDay(root, day, dayKey, phaseInfo, sessionCtx) {
  */
 export async function renderTodayTab(container) {
   injectStyles();
+  ensureRestTimerWidget();
   container.innerHTML = '';
 
   const settings = await getSetting();
