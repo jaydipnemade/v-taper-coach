@@ -442,6 +442,82 @@
         || `got ${JSON.stringify(svg)}`;
     });
 
+    // --- js/checkin.js (Task 14) --------------------------------------------
+    // Loaded dynamically (see Task 3 note above) so a missing/broken module
+    // (expected during the RED phase, before checkin.js exists) fails only
+    // these checks instead of blanking the whole page.
+    const checkin = await import('./js/checkin.js').catch((err) => ({ loadError: err.message }));
+    const decide = (input) => checkin.calorieDecision(input);
+
+    await check('calorieDecision row 1: recomp, weight/waist in target range and lifts up -> "It\'s working"', () => eq(
+      decide({ phase: 'recomp', weightDelta4wk: -0.4, waistDelta4wk: -1, liftsTrend: 'up', bloatPersisted: false }),
+      { decision: "It's working", action: 'Change nothing', kcalChange: 0 },
+    ));
+
+    await check('calorieDecision row 2: leanGain, weight gain < 0.5 and |waist| < 0.5 -> Surplus too small', () => eq(
+      decide({ phase: 'leanGain', weightDelta4wk: 0.4, waistDelta4wk: 0.2, liftsTrend: 'flat', bloatPersisted: false }),
+      { decision: 'Surplus too small', action: '+150 kcal a day (≈ +35 g carbs)', kcalChange: 150 },
+    ));
+
+    await check('calorieDecision row 3: leanGain, weight gain > 1.5 -> Gaining too much fat', () => eq(
+      decide({ phase: 'leanGain', weightDelta4wk: 1.6, waistDelta4wk: 0.2, liftsTrend: 'up', bloatPersisted: false }),
+      { decision: 'Gaining too much fat', action: '-150 kcal a day (cut carbs), +2,000 steps a day', kcalChange: -150 },
+    ));
+
+    await check('calorieDecision row 4: recomp, weight and waist both down, lifts up, outside row-1 range -> Recomp is working well', () => eq(
+      decide({ phase: 'recomp', weightDelta4wk: -1.5, waistDelta4wk: -1, liftsTrend: 'up', bloatPersisted: false }),
+      { decision: 'Recomp is working well', action: 'Stay at 2,500 kcal for 2–4 more weeks before starting the surplus', kcalChange: 0 },
+    ));
+
+    await check('calorieDecision row 5: recomp, weight down > 1 and lifts down -> Eating too little', () => eq(
+      decide({ phase: 'recomp', weightDelta4wk: -1.5, waistDelta4wk: 0, liftsTrend: 'down', bloatPersisted: false }),
+      { decision: 'Eating too little', action: '+150 kcal a day', kcalChange: 150 },
+    ));
+
+    await check('calorieDecision row 6: flat weight and waist up, bloat persisted -> Bloating or fat gain, -150', () => eq(
+      decide({ phase: 'recomp', weightDelta4wk: 0.1, waistDelta4wk: 0.5, liftsTrend: 'flat', bloatPersisted: true }),
+      { decision: 'Bloating or fat gain', action: '-150 kcal a day', kcalChange: -150 },
+    ));
+
+    await check('calorieDecision fallback: no row matches -> No clear signal', () => eq(
+      decide({ phase: 'recomp', weightDelta4wk: 0.5, waistDelta4wk: 0, liftsTrend: 'flat', bloatPersisted: false }),
+      { decision: 'No clear signal', action: 'Keep current calories 2 more weeks and re-check', kcalChange: 0 },
+    ));
+
+    await check('volumeRule: onTrack', () => eq(
+      checkin.volumeRule('onTrack'), { action: 'Keep the plan as written' },
+    ));
+    await check('volumeRule: shouldersLatsStalled', () => eq(
+      checkin.volumeRule('shouldersLatsStalled'),
+      { action: '+2 sets a week of lateral raises and +2 sets a week of pulldowns' },
+    ));
+    await check('volumeRule: noProgress', () => eq(
+      checkin.volumeRule('noProgress'),
+      { action: 'Check sleep and protein first, then take the deload a week early' },
+    ));
+    await check('volumeRule: jointsAchy', () => eq(
+      checkin.volumeRule('jointsAchy'), { action: 'Remove 1 set from every exercise for 2 weeks' },
+    ));
+    await check('volumeRule: lowerBackTwinge', () => eq(
+      checkin.volumeRule('lowerBackTwinge'),
+      { action: "Drop that exercise's load 20%. If it persists, swap it: hack squat → leg press, hip thrust → glute bridge machine, row → machine row" },
+    ));
+
+    await check('vTaperRatio(100, 71.4) is close to 1.4', () => {
+      const r = checkin.vTaperRatio(100, 71.4);
+      return (Math.abs(r - 1.4) < 0.01) || `got ${r}`;
+    });
+
+    await check('computeWeekAverages: averages in-range records and returns null for absent fields', () => {
+      const metrics = [
+        { date: '2026-01-05', weightKg: 70, waistCm: 80 },
+        { date: '2026-01-07', weightKg: 72, steps: 9000 },
+        { date: '2026-01-20', weightKg: 99, waistCm: 1 }, // outside the week
+      ];
+      const r = checkin.computeWeekAverages(metrics, '2026-01-05', '2026-01-11');
+      return eq(r, { avgWeight: 71, avgWaist: 80, avgSteps: 9000, avgSleep: null });
+    });
+
     for (const { name, ok, detail } of checks) {
       const li = document.createElement('li');
       li.textContent = `${ok ? 'PASS' : 'FAIL'} - ${name}${ok ? '' : ` (${detail})`}`;
