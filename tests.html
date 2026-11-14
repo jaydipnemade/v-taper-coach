@@ -262,6 +262,27 @@
       );
     });
 
+    // RIR range-string parsing, ascending order: '0-1' is the real rir value for
+    // rope-pushdown, reverse-pec-deck, leg-extension, seated-db-lateral-raise, and
+    // single-arm-cable-pushdown in js/data/plan.js. It must ALSO parse to target
+    // RIR 0 (via Math.min), not 1 - parsing must be order-independent, not just
+    // "take the last token" (which would wrongly give 1 here).
+    const ascendingRirExercise = { repsLow: 12, repsHigh: 15, rir: '0-1', incrementType: 'cable' };
+    await check("recommendNextSession: rir '0-1' (ascending order) parses to target RIR 0 - a set at rir:1 blocks increaseWeight", () => {
+      const history = [perf([workingSet(15, 0), workingSet(15, 1)])];
+      return eq(
+        progression.recommendNextSession(ascendingRirExercise, history),
+        { type: 'beatLastTime', targetReps: 15 },
+      );
+    });
+    await check("recommendNextSession: rir '0-1' (ascending order) parses to target RIR 0 - all sets at rir:0 and repsHigh -> increaseWeight", () => {
+      const history = [perf([workingSet(15, 0), workingSet(15, 0)])];
+      return eq(
+        progression.recommendNextSession(ascendingRirExercise, history),
+        { type: 'increaseWeight', amount: INCREMENT_BY_TYPE.cable },
+      );
+    });
+
     for (const { name, ok, detail } of checks) {
       const li = document.createElement('li');
       li.textContent = `${ok ? 'PASS' : 'FAIL'} - ${name}${ok ? '' : ` (${detail})`}`;

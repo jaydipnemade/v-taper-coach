@@ -22,13 +22,17 @@ export function getLastPerformance(history) {
 /**
  * Parses a PlanExercise RIR string (e.g. '2', '1-0', '0-1') to the target RIR
  * ceiling used to judge whether a set was taken hard enough: the string is
- * split on '-' and the last number is taken as the strictest bound.
+ * split on '-' and the minimum of the resulting numbers is taken as the
+ * strictest bound. Using the minimum (rather than, say, the last token) makes
+ * this order-independent: the plan data is inconsistent about whether a range
+ * is written high-to-low ('1-0') or low-to-high ('0-1'), and both must yield
+ * the same stricter target RIR of 0.
  * @param {string} rirString
  * @returns {number}
  */
 function parseTargetRIR(rirString) {
-  const parts = String(rirString).split('-');
-  return parseFloat(parts[parts.length - 1]);
+  const numbers = String(rirString).split('-').map((part) => parseFloat(part));
+  return Math.min(...numbers);
 }
 
 /**
