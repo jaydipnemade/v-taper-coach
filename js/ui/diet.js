@@ -639,7 +639,13 @@ export async function renderDietTab(container) {
   if (!log.checkedMealIds) log.checkedMealIds = [];
 
   const meals = getMealsForDay(dayKey);
-  const targets = getTargetsForWeek(weekNumber);
+  // getTargetsForWeek is pure and only reads NUTRITION_PHASES (js/nutrition.js) —
+  // it knows nothing about check-ins, so the Progress tab's check-in-wizard
+  // kcal adjustment (js/ui/progress.js, settings.calorieOverride) is applied
+  // here instead, on top of the pure function's result.
+  const calorieOverride = settings?.calorieOverride ?? 0;
+  const baseTargets = getTargetsForWeek(weekNumber);
+  const targets = { ...baseTargets, kcal: baseTargets.kcal + calorieOverride };
   const todayCustomFoods = allCustomFoods.filter((f) => log.customFoodIds.includes(f.id));
   const totals = computeDayTotals(meals, log.checkedMealIds, log.addOnId, log.bananaChecked, todayCustomFoods);
   const showAddOns = weekNumber !== null && weekNumber >= ADD_ON_GATE_WEEK;
@@ -666,6 +672,13 @@ export async function renderDietTab(container) {
       ? "Your 12-week plan hasn't started yet (or is complete) — showing default recomp-phase targets."
       : 'Set your start date in Settings for week-specific macros — showing default recomp-phase targets for now.';
     root.appendChild(note);
+  }
+
+  if (calorieOverride !== 0) {
+    const overrideNote = document.createElement('p');
+    overrideNote.className = 'diet-note';
+    overrideNote.textContent = `Calorie target includes a ${calorieOverride > 0 ? '+' : ''}${calorieOverride} kcal/day check-in adjustment.`;
+    root.appendChild(overrideNote);
   }
 
   root.appendChild(renderSummary(totals, targets));
