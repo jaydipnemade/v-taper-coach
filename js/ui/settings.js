@@ -365,11 +365,11 @@ function buildProfileForm(settings, onSaved) {
 const GROCERY_STALE_AFTER_DAYS = 7;
 
 /** Whole-day difference between two 'YYYY-MM-DD' strings, both parsed as
- * local midnight so neither time-of-day nor DST shifts skew the count.
- * Math.round (not Math.floor) because both inputs are already local
- * midnight, so the division is only ever off by sub-millisecond floating
- * point error, never a genuine fractional day — round is just there to
- * land exactly on the integer instead of e.g. 6.999999999999. */
+ * local midnight. Math.round (not Math.floor) because a DST transition
+ * between the two dates shifts the actual elapsed-ms difference by about
+ * an hour either way, so the raw division can land on e.g. 6.958 or 7.042
+ * instead of exactly 7 — rounding absorbs that without needing a
+ * timezone-aware date library. */
 function daysBetweenISO(fromISO, toISO) {
   const from = new Date(`${fromISO}T00:00:00`);
   const to = new Date(`${toISO}T00:00:00`);
