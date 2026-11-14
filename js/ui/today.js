@@ -125,6 +125,89 @@ function formatReps(exercise) {
 }
 
 // ---------------------------------------------------------------------------
+// RIR adjustments.
+//
+// Two distinct phase-level RIR fields exist in BLOCK_STRUCTURE, and each one
+// only makes sense for a subset of exercises:
+//
+//  - `rirOverride` (intro week 1 -> '3', deload weeks 6/12 -> '3-4') replaces
+//    the exercise's own RIR target for the week. It only applies to
+//    exercises that HAVE a real RIR target to begin with — an exercise whose
+//    own `rir` is '—' (bodyweight/isometric/cardio work with no RIR concept,
+//    e.g. stomach vacuum, dead bug, plank) stays '—' regardless of phase.
+//
+//  - `isolationLastSetRIR` (Build 2, weeks 7-11 -> 0) is the source plan's
+//    "push the last set of ISOLATION exercises to RIR 0" instruction. It
+//    must NOT apply to compound/multi-joint lifts (leg press, hip thrust,
+//    incline press, hack squat, the primary lat pulldown / chest-supported
+//    row, pull-ups, dips, lunges/split squats) — training those to true
+//    failure on every set is exactly the kind of risk the plan's exercise
+//    selection is designed to avoid. It also never applies to anything with
+//    `incrementType: 'bodyweight'` (no RIR target at all) or to an exercise
+//    whose own `rir` is '—'.
+// ---------------------------------------------------------------------------
+
+// Single-joint / isolation exercise ids that get the Build 2 last-set-RIR-0
+// note. Classified by hand against js/data/plan.js's exercise names — see
+// the Task 9 fix report for the full rationale and the borderline calls
+// (seated-cable-row, kneeling-single-arm-cable-pulldown, kneeling-cable-crunch).
+const ISOLATION_EXERCISE_IDS = new Set([
+  // Monday
+  'single-arm-cable-lateral-raise',
+  'low-to-high-cable-fly',
+  'overhead-cable-triceps-extension',
+  'rope-pushdown',
+  // Tuesday
+  'leg-extension',
+  'seated-leg-curl',
+  'standing-calf-raise',
+  // Wednesday
+  'kneeling-single-arm-cable-pulldown',
+  'straight-arm-cable-pulldown',
+  'reverse-pec-deck',
+  'incline-db-curl',
+  'hammer-curl',
+  // Thursday
+  'machine-lateral-raise',
+  'cable-y-raise',
+  'face-pull',
+  'ez-curl-skull-crusher-superset',
+  'close-neutral-grip-lat-pulldown',
+  // Friday
+  'lying-leg-curl',
+  'leg-extension-lower-b',
+  'seated-calf-raise',
+  'kneeling-cable-crunch',
+  // Saturday
+  'cable-lateral-raise-both-arms',
+  'seated-db-lateral-raise',
+  'rear-delt-cable-fly',
+  'bayesian-cable-curl',
+  'preacher-curl',
+  'single-arm-cable-pushdown',
+]);
+
+function hasRealRir(exercise) {
+  return exercise.rir !== '—';
+}
+
+function displayRir(exercise, phaseInfo) {
+  if (phaseInfo?.rirOverride && hasRealRir(exercise)) {
+    return phaseInfo.rirOverride;
+  }
+  return exercise.rir;
+}
+
+function lastSetRirNote(exercise, phaseInfo) {
+  if (phaseInfo?.isolationLastSetRIR === undefined || phaseInfo?.isolationLastSetRIR === null) {
+    return '';
+  }
+  if (exercise.incrementType === 'bodyweight' || !hasRealRir(exercise)) return '';
+  if (!ISOLATION_EXERCISE_IDS.has(exercise.id)) return '';
+  return ` (last set RIR ${phaseInfo.isolationLastSetRIR})`;
+}
+
+// ---------------------------------------------------------------------------
 // Styles (injected once, reusing the shared theme's custom properties).
 // ---------------------------------------------------------------------------
 
@@ -250,7 +333,7 @@ function renderExerciseRow(exercise, phaseInfo) {
 
   const sets = adjustedSets(exercise, phaseInfo);
   const reps = formatReps(exercise);
-  const rir = phaseInfo?.rirOverride ?? exercise.rir;
+  const rir = displayRir(exercise, phaseInfo);
 
   const header = document.createElement('button');
   header.type = 'button';
@@ -263,10 +346,7 @@ function renderExerciseRow(exercise, phaseInfo) {
 
   const metaEl = document.createElement('span');
   metaEl.className = 'exercise-meta';
-  let metaText = `${sets} × ${reps} · Rest ${exercise.rest} · RIR ${rir}`;
-  if (phaseInfo?.isolationLastSetRIR !== undefined && phaseInfo?.isolationLastSetRIR !== null) {
-    metaText += ` (last set RIR ${phaseInfo.isolationLastSetRIR})`;
-  }
+  const metaText = `${sets} × ${reps} · Rest ${exercise.rest} · RIR ${rir}${lastSetRirNote(exercise, phaseInfo)}`;
   metaEl.textContent = metaText;
 
   header.append(nameEl, metaEl);
