@@ -69,9 +69,13 @@
 //    week. CHECKIN_TARGETS' ranges (e.g. `waistPer4WeeksCm`) are framed as
 //    a change over the review period, which this matches; a single call
 //    spanning the whole 4-week range would only give a blended average, not
-//    a delta. If either endpoint's average is unavailable (no data logged
-//    that week), the delta used is 0 and the wizard shows an explicit
-//    warning rather than letting a null silently coerce in a comparison.
+//    a delta. If EITHER endpoint's own average is unavailable (no data
+//    logged that week), that delta (weight's or waist's — checked
+//    independently, not both-or-nothing) is forced to exactly 0 rather than
+//    computed by defaulting just the missing side to 0 before subtracting
+//    (which would manufacture a fake delta out of the one side that does
+//    have data). The wizard shows an explicit warning naming which of the
+//    two is affected whenever this happens.
 //
 // 8. Confirming a check-in updates `settings.calorieOverride` by REMOVING
 //    this week's previous checkin's kcalChange (if re-running a check-in
@@ -213,6 +217,8 @@ function injectStyles() {
       color: inherit;
       padding: 4px 6px;
       min-width: 110px;
+      min-height: var(--tap-min);
+      box-sizing: border-box;
       font-size: 0.78rem;
     }
     .checkin-field {
@@ -528,14 +534,24 @@ function renderCheckinSection({
   const lastAvg = computeWeekAverages(
     allMetrics, weekStartISO(startDateISO, weekNumber), weekEndISO(startDateISO, weekNumber),
   );
-  const missingData = firstAvg.avgWeight == null || lastAvg.avgWeight == null
-    || firstAvg.avgWaist == null || lastAvg.avgWaist == null;
+  // Each delta is forced to 0 only when EITHER of its own two endpoints is
+  // missing (not by independently defaulting each operand to 0 before
+  // subtracting, which would silently manufacture a fake delta whenever
+  // only one side had data — e.g. firstAvg null, lastAvg = 80 would wrongly
+  // yield a "-80kg lost" or "+80kg gained" delta instead of "unknown").
+  const weightMissing = firstAvg.avgWeight == null || lastAvg.avgWeight == null;
+  const waistMissing = firstAvg.avgWaist == null || lastAvg.avgWaist == null;
+  const missingData = weightMissing || waistMissing;
 
   if (missingData) {
     const warning = document.createElement('p');
     warning.className = 'checkin-warning';
-    warning.textContent = `Note: missing weight/waist data for week ${firstWeek} or week ${weekNumber} — `
-      + 'any missing value is treated as 0 change below.';
+    const missingWhich = [
+      weightMissing ? 'weight' : null,
+      waistMissing ? 'waist' : null,
+    ].filter(Boolean).join(' and ');
+    warning.textContent = `Note: missing ${missingWhich} data for week ${firstWeek} or week ${weekNumber} — `
+      + `the ${missingWhich} change below is shown as 0 (unknown), not a real measured change.`;
     section.appendChild(warning);
   }
 
@@ -633,9 +649,9 @@ function renderCheckinSection({
     computeBtn.type = 'button';
     computeBtn.className = 'checkin-btn';
     computeBtn.textContent = 'See decision';
-    computeBtn.addEventListener('click', () => {
-      const weightDelta4wk = (lastAvg.avgWeight ?? 0) - (firstAvg.avgWeight ?? 0);
-      const waistDelta4wk = (lastAvg.avgWaist ?? 0) - (firstAvg.avgWaist ?? 0);
+    computeBtn.addEventListener('click', async () => {
+      const weightDelta4wk = weightMissing ? 0 : lastAvg.avgWeight - firstAvg.avgWeight;
+      const waistDelta4wk = waistMissing ? 0 : lastAvg.avgWaist - firstAvg.avgWaist;
       const phase = getNutritionPhaseForWeek(weekNumber);
       const decision = calorieDecision({
         phase,
@@ -646,7 +662,7 @@ function renderCheckinSection({
       });
       checkinWizardState.step = 'result';
       checkinWizardState.result = { ...decision, weightDelta4wk, waistDelta4wk };
-      rerender();
+      await rerender();
     });
     section.appendChild(computeBtn);
   }
