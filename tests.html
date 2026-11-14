@@ -358,6 +358,32 @@
       return eq(remaining, 0);
     });
 
+    // --- js/nutrition.js (Task 12) ------------------------------------------
+    // Loaded dynamically (see Task 3 note above) so a missing/broken module
+    // (expected during the RED phase, before nutrition.js exists) fails only
+    // these checks instead of blanking the whole page.
+    const nutrition = await import('./js/nutrition.js').catch((err) => ({ loadError: err.message }));
+    const nutritionMeals = nutrition.getMealsForDay ? nutrition.getMealsForDay('mon') : [];
+
+    await check('getTargetsForWeek(2).kcal is 2500 (recomp)', () => eq(nutrition.getTargetsForWeek(2).kcal, 2500));
+    await check('getTargetsForWeek(7).kcal is 2850 (leanGain)', () => eq(nutrition.getTargetsForWeek(7).kcal, 2850));
+
+    await check("computeDayTotals: one checked meal, no add-on/banana/custom foods, equals that meal's own kcal/protein", () => {
+      const totals = nutrition.computeDayTotals(nutritionMeals, [nutritionMeals[0].id], null, false, []);
+      return eq(totals, { kcal: nutritionMeals[0].kcal, protein: nutritionMeals[0].protein });
+    });
+
+    await check('computeDayTotals: add-on + banana add 250+100 kcal and no protein', () => {
+      const base = nutrition.computeDayTotals(nutritionMeals, [nutritionMeals[0].id], null, false, []);
+      const withExtras = nutrition.computeDayTotals(nutritionMeals, [nutritionMeals[0].id], 'banana-peanut-butter', true, []);
+      return eq([withExtras.kcal - base.kcal, withExtras.protein - base.protein], [350, 0]);
+    });
+
+    await check("applyProteinSwap: 'chicken curry (150 g breast)' chicken->fish", () => eq(
+      nutrition.applyProteinSwap('chicken curry (150 g breast)', 'chicken', 'fish'),
+      'fish curry (150 g breast)',
+    ));
+
     for (const { name, ok, detail } of checks) {
       const li = document.createElement('li');
       li.textContent = `${ok ? 'PASS' : 'FAIL'} - ${name}${ok ? '' : ` (${detail})`}`;
