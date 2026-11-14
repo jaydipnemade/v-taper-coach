@@ -10,7 +10,7 @@
   <ul id="results"></ul>
   <script type="module">
     import {
-      DAY_ORDER, DAYS, BLOCK_STRUCTURE, MEAL_PLAN,
+      DAY_ORDER, DAYS, BLOCK_STRUCTURE, MEAL_PLAN, INCREMENT_BY_TYPE,
     } from './js/data/plan.js';
     import {
       getSetting, putSetting,
@@ -167,6 +167,99 @@
     await check('getWeekInfo: before start is not plan complete', () => {
       const info = week.getWeekInfo(START, '2026-01-04');
       return eq([info.weekNumber, info.isPlanComplete], [null, false]);
+    });
+
+    // --- js/progression.js (Task 4) ----------------------------------------
+    // Loaded dynamically (see Task 3 note above) so a missing/broken module
+    // (expected during the RED phase, before progression.js exists) fails
+    // only these checks instead of blanking the whole page.
+    const progression = await import('./js/progression.js').catch((err) => ({ loadError: err.message }));
+
+    const perf = (sets) => ({ date: '2026-02-01', weekNumber: 3, sets });
+    const workingSet = (reps, rir) => ({ weight: 50, reps, rir, isWarmup: false });
+    const warmupSet = (reps, rir) => ({ weight: 20, reps, rir, isWarmup: true });
+
+    await check('getLastPerformance: empty history returns null', () => eq(progression.getLastPerformance([]), null));
+
+    await check('getLastPerformance: returns the last (chronologically latest) entry', () => {
+      const h = [perf([workingSet(8, 2)]), perf([workingSet(9, 2)])];
+      return eq(progression.getLastPerformance(h), h[1]);
+    });
+
+    const dbExercise = { repsLow: 8, repsHigh: 12, rir: '2', incrementType: 'dumbbell' };
+
+    await check('recommendNextSession: no history returns noHistory', () => eq(
+      progression.recommendNextSession(dbExercise, []),
+      { type: 'noHistory' },
+    ));
+
+    await check('recommendNextSession: all working sets at repsHigh and at/under target RIR -> increaseWeight', () => {
+      const history = [perf([workingSet(12, 2), workingSet(12, 2), workingSet(12, 2)])];
+      return eq(
+        progression.recommendNextSession(dbExercise, history),
+        { type: 'increaseWeight', amount: INCREMENT_BY_TYPE[dbExercise.incrementType] },
+      );
+    });
+
+    await check('recommendNextSession: warm-up sets are ignored (clean working sets, dirty warm-up) -> increaseWeight', () => {
+      const history = [perf([warmupSet(1, 5), workingSet(12, 2), workingSet(12, 2), workingSet(12, 2)])];
+      return eq(
+        progression.recommendNextSession(dbExercise, history),
+        { type: 'increaseWeight', amount: INCREMENT_BY_TYPE[dbExercise.incrementType] },
+      );
+    });
+
+    // Review Focus: one working set short on RIR (even though its reps hit target) must block increaseWeight.
+    await check('recommendNextSession: one working set short on RIR (rest clean at repsHigh) -> beatLastTime, not increaseWeight', () => {
+      const history = [perf([workingSet(12, 2), workingSet(12, 2), workingSet(12, 3)])];
+      return eq(
+        progression.recommendNextSession(dbExercise, history),
+        { type: 'beatLastTime', targetReps: 12 },
+      );
+    });
+
+    // Review Focus: one working set short on reps (even though its RIR hit target) must block increaseWeight.
+    await check('recommendNextSession: one working set short on reps (rest clean at repsHigh) -> beatLastTime, not increaseWeight', () => {
+      const history = [perf([workingSet(12, 2), workingSet(12, 2), workingSet(10, 2)])];
+      return eq(
+        progression.recommendNextSession(dbExercise, history),
+        { type: 'beatLastTime', targetReps: 12 },
+      );
+    });
+
+    await check('recommendNextSession: below-top-of-range sets -> beatLastTime with targetReps = maxReps + 1', () => {
+      const history = [perf([workingSet(9, 2), workingSet(10, 2)])];
+      return eq(
+        progression.recommendNextSession(dbExercise, history),
+        { type: 'beatLastTime', targetReps: 11 },
+      );
+    });
+
+    // Bodyweight ruling: must never return increaseWeight for incrementType 'bodyweight', even when
+    // every working set is clean at repsHigh and target RIR. Falls through to beatLastTime, holding
+    // at repsHigh (there is no weight-based progression path for bodyweight work in this app).
+    const bodyweightExercise = { repsLow: 10, repsHigh: 15, rir: '1', incrementType: 'bodyweight' };
+    await check('recommendNextSession: bodyweight exercise, all working sets clean at repsHigh -> beatLastTime targetReps===repsHigh, never increaseWeight', () => {
+      const history = [perf([workingSet(15, 1), workingSet(15, 1), workingSet(15, 1)])];
+      const result = progression.recommendNextSession(bodyweightExercise, history);
+      return eq(result, { type: 'beatLastTime', targetReps: bodyweightExercise.repsHigh });
+    });
+
+    // RIR range-string parsing: '1-0' takes the last (strictest) number, 0, as the target RIR ceiling.
+    const rangeRirExercise = { repsLow: 12, repsHigh: 20, rir: '1-0', incrementType: 'cable' };
+    await check("recommendNextSession: rir '1-0' parses to target RIR 0 - a set at rir:1 blocks increaseWeight", () => {
+      const history = [perf([workingSet(20, 0), workingSet(20, 1)])];
+      return eq(
+        progression.recommendNextSession(rangeRirExercise, history),
+        { type: 'beatLastTime', targetReps: 20 },
+      );
+    });
+    await check("recommendNextSession: rir '1-0' parses to target RIR 0 - all sets at rir:0 and repsHigh -> increaseWeight", () => {
+      const history = [perf([workingSet(20, 0), workingSet(20, 0)])];
+      return eq(
+        progression.recommendNextSession(rangeRirExercise, history),
+        { type: 'increaseWeight', amount: INCREMENT_BY_TYPE.cable },
+      );
     });
 
     for (const { name, ok, detail } of checks) {
