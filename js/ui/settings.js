@@ -11,6 +11,11 @@
 //     weightKg: number,   // always stored canonically in metric
 //     age: number,
 //     lastBackupAt?: string,   // ISO timestamp — set by Task 16, read here defensively
+//     groceryChecklist?: {     // weekly grocery checklist (Task 16) — no
+//       weekOf: 'YYYY-MM-DD',  // separate IndexedDB store; just a field here
+//       checkedItems: string[],  // GROCERY_LIST item strings (no id field
+//     },                         // on GROCERY_LIST entries, so the item
+//                                 // text itself is the checklist identity)
 //   }
 //
 // Height/weight are always persisted in metric regardless of the `units`
@@ -18,6 +23,7 @@
 // at the form boundary.
 
 import { getSetting, putSetting } from '../db.js';
+import { GROCERY_LIST } from '../data/plan.js';
 
 const DEFAULT_HEIGHT_CM = 173;
 const DEFAULT_WEIGHT_KG = 67;
@@ -121,6 +127,32 @@ function injectStyles() {
       color: var(--text-dim);
       font-size: 0.9rem;
       margin: 0;
+    }
+    .grocery-week-of {
+      color: var(--text-dim);
+      font-size: 0.85rem;
+      margin: 0 0 12px;
+    }
+    .grocery-category {
+      margin: 16px 0 6px;
+      font-size: 0.9rem;
+    }
+    .grocery-category:first-of-type {
+      margin-top: 8px;
+    }
+    .grocery-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .grocery-list li {
+      margin-bottom: 8px;
+    }
+    .grocery-list label {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      min-height: var(--tap-min);
     }
     .settings-firstrun-overlay {
       position: fixed;
@@ -323,6 +355,115 @@ function buildProfileForm(settings, onSaved) {
   return form;
 }
 
+// ---------------------------------------------------------------------------
+// Grocery checklist (Task 16) — GROCERY_LIST grouped by category, backed by
+// `settings.groceryChecklist = { weekOf, checkedItems }`. No new IndexedDB
+// store: it's just a field merged into the existing single `settings`
+// record via the same getSetting()/putSetting() pair the profile form uses.
+// ---------------------------------------------------------------------------
+
+const GROCERY_STALE_AFTER_DAYS = 7;
+
+/** Whole-day difference between two 'YYYY-MM-DD' strings, both parsed as
+ * local midnight so neither time-of-day nor DST shifts skew the count. */
+function daysBetweenISO(fromISO, toISO) {
+  const from = new Date(`${fromISO}T00:00:00`);
+  const to = new Date(`${toISO}T00:00:00`);
+  return Math.round((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+/**
+ * Returns the grocery checklist to render, resetting it (and persisting
+ * that reset via putSetting, merged into the existing settings record) if
+ * it's absent or more than GROCERY_STALE_AFTER_DAYS days old.
+ * @param {object|null} settings
+ * @returns {Promise<{weekOf: string, checkedItems: string[]}>}
+ */
+async function resolveGroceryChecklist(settings) {
+  const today = todayISO();
+  const existing = settings?.groceryChecklist;
+  const isStale =
+    !existing?.weekOf || daysBetweenISO(existing.weekOf, today) > GROCERY_STALE_AFTER_DAYS;
+
+  if (!isStale) {
+    return {
+      weekOf: existing.weekOf,
+      checkedItems: Array.isArray(existing.checkedItems) ? existing.checkedItems : [],
+    };
+  }
+
+  const resetChecklist = { weekOf: today, checkedItems: [] };
+  await putSetting({ ...(settings || {}), groceryChecklist: resetChecklist });
+  return resetChecklist;
+}
+
+/**
+ * Builds the grocery checklist card, grouped by GROCERY_LIST's `category`.
+ * Each checkbox toggle re-reads the current settings record immediately
+ * before writing, so it never clobbers fields changed elsewhere (e.g. the
+ * profile form, or a backup timestamp) since this card was rendered.
+ * @param {{weekOf: string, checkedItems: string[]}} checklist
+ * @returns {HTMLElement}
+ */
+function renderGroceryChecklist(checklist) {
+  const card = document.createElement('section');
+  card.className = 'settings-card';
+  card.setAttribute('data-settings-section', 'grocery');
+
+  const heading = document.createElement('h2');
+  heading.textContent = 'Weekly grocery list';
+  card.appendChild(heading);
+
+  const weekOfLine = document.createElement('p');
+  weekOfLine.className = 'grocery-week-of';
+  weekOfLine.textContent = `Week of ${checklist.weekOf}`;
+  card.appendChild(weekOfLine);
+
+  const checkedItems = new Set(checklist.checkedItems);
+
+  async function persistCheckedItems() {
+    const current = await getSetting();
+    await putSetting({
+      ...(current || {}),
+      groceryChecklist: { weekOf: checklist.weekOf, checkedItems: Array.from(checkedItems) },
+    });
+  }
+
+  const categories = new Map();
+  for (const entry of GROCERY_LIST) {
+    if (!categories.has(entry.category)) categories.set(entry.category, []);
+    categories.get(entry.category).push(entry);
+  }
+
+  for (const [category, items] of categories) {
+    const categoryHeading = document.createElement('h3');
+    categoryHeading.className = 'grocery-category';
+    categoryHeading.textContent = category;
+    card.appendChild(categoryHeading);
+
+    const list = document.createElement('ul');
+    list.className = 'grocery-list';
+    items.forEach((entry) => {
+      const li = document.createElement('li');
+      const label = document.createElement('label');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = checkedItems.has(entry.item);
+      checkbox.addEventListener('change', async () => {
+        if (checkbox.checked) checkedItems.add(entry.item);
+        else checkedItems.delete(entry.item);
+        await persistCheckedItems();
+      });
+      label.append(checkbox, document.createTextNode(`${entry.item} — ${entry.quantity}`));
+      li.appendChild(label);
+      list.appendChild(li);
+    });
+    card.appendChild(list);
+  }
+
+  return card;
+}
+
 /**
  * Renders the Settings tab into `container`: the profile form (pre-filled
  * from `getSetting()`, saved via `putSetting()` on submit) plus stub
@@ -366,6 +507,10 @@ export async function renderSettingsTab(container) {
   backupCard.appendChild(lastBackupLine);
 
   container.appendChild(backupCard);
+
+  // --- Weekly grocery checklist -------------------------------------------
+  const groceryChecklist = await resolveGroceryChecklist(settings);
+  container.appendChild(renderGroceryChecklist(groceryChecklist));
 }
 
 /**

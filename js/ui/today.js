@@ -521,6 +521,46 @@ function renderHowToPanel(exercise) {
 }
 
 // ---------------------------------------------------------------------------
+// Stomach-vacuum hold timer trigger.
+//
+// Deliberately scoped to the dedicated 'stomach-vacuum' exercise id only,
+// NOT the combined 'front-plank-stomach-vacuum' exercise that also appears
+// elsewhere in plan.js: that combined exercise's notes describe a plank
+// hold followed by a separate "3 × 20 s stomach vacuum" block, so a single
+// 25 s "Start hold" button there would be ambiguous about which phase it's
+// timing. The dedicated 'stomach-vacuum' exercise, by contrast, IS a single
+// 20-30 s vacuum hold (its own notes/cue describe exactly that one motion),
+// which this fixed 25 s (midpoint) button cleanly models. Giving the
+// combined exercise its own correct trigger would need a second button or
+// some other disambiguating UI — out of this task's scope.
+//
+// Reuses the exact same startRestTimer()/primeRestTimerAudio()/
+// pollRestTimer() mechanism the "Log set" flow uses to hand off to the
+// floating rest-timer widget below, rather than building any new timer UI.
+// ---------------------------------------------------------------------------
+
+const STOMACH_VACUUM_HOLD_MS = 25000;
+
+function renderStomachVacuumHoldButton(exercise) {
+  if (exercise.id !== 'stomach-vacuum') return null;
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'stomach-vacuum-hold-btn';
+  btn.textContent = 'Start hold (25s)';
+  btn.addEventListener('click', () => {
+    primeRestTimerAudio();
+    try {
+      startRestTimer(STOMACH_VACUUM_HOLD_MS);
+    } catch (err) {
+      // sessionStorage blocked — no timer this session, non-fatal.
+    }
+    pollRestTimer();
+  });
+  return btn;
+}
+
+// ---------------------------------------------------------------------------
 // Swap control — a menu of exercise.swaps alternatives, with the
 // LOWER_BACK_TWINGE_SWAPS entry (if any, and if it resolves to real
 // PlanExercise data) highlighted as the back-friendly pick. Picking an
@@ -1036,6 +1076,16 @@ function injectStyles() {
       padding-top: 10px;
       margin-bottom: 10px;
     }
+    .stomach-vacuum-hold-btn {
+      min-height: var(--tap-min);
+      border: none;
+      border-radius: var(--radius);
+      background: var(--accent);
+      color: var(--surface);
+      padding: 4px 10px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
     .how-to-title,
     .swap-title {
       margin: 0 0 6px;
@@ -1223,6 +1273,8 @@ function renderExerciseRow(initialExercise, phaseInfo, sessionCtx) {
   function rebuildDetailsContents() {
     details.innerHTML = '';
     details.appendChild(renderHowToPanel(currentExercise));
+    const vacuumHoldBtn = renderStomachVacuumHoldButton(currentExercise);
+    if (vacuumHoldBtn) details.appendChild(vacuumHoldBtn);
     details.appendChild(renderSwapControl(currentExercise, handleSwap));
     loggerContainer = document.createElement('div');
     loggerContainer.className = 'logger-container';
@@ -1275,13 +1327,38 @@ function renderTrainingDay(root, day, dayKey, phaseInfo, sessionCtx) {
   warmupTitle.textContent = 'Warm-up';
   warmup.appendChild(warmupTitle);
 
+  // Checked state persists per-day on sessionCtx.draft.warmupChecked (an
+  // array of WARMUP_STEPS indices — these items have no id of their own, so
+  // array position is the identity). sessionCtx.draft is the SAME object the
+  // set logger reads/mutates/writes via putSessionLog elsewhere in this
+  // file, so setting one field on it here and persisting it is a
+  // read(already in memory)-merge(add warmupChecked)-write, never a blind
+  // overwrite of whatever sets have already been logged today. The record
+  // is keyed by `${dateISO}_${dayKey}` (see renderTodayTab), so this resets
+  // implicitly on any new calendar day with no explicit cleanup needed.
   const warmupList = document.createElement('ul');
+  const warmupCheckedIndices = new Set(
+    Array.isArray(sessionCtx.draft.warmupChecked) ? sessionCtx.draft.warmupChecked : []
+  );
+
+  async function persistWarmupChecked() {
+    const checkedIndices = Array.from(
+      warmupList.querySelectorAll('input[data-warmup-index]')
+    )
+      .filter((input) => input.checked)
+      .map((input) => Number(input.dataset.warmupIndex));
+    sessionCtx.draft.warmupChecked = checkedIndices;
+    await putSessionLog(sessionCtx.draft);
+  }
+
   WARMUP_STEPS.forEach((step, index) => {
     const li = document.createElement('li');
     const label = document.createElement('label');
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.dataset.warmupIndex = String(index);
+    checkbox.checked = warmupCheckedIndices.has(index);
+    checkbox.addEventListener('change', persistWarmupChecked);
     label.append(checkbox, document.createTextNode(step));
     li.appendChild(label);
     warmupList.appendChild(li);
