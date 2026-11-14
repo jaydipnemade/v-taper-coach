@@ -12,14 +12,20 @@
     import {
       DAY_ORDER, DAYS, BLOCK_STRUCTURE, MEAL_PLAN,
     } from './js/data/plan.js';
+    import {
+      getSetting, putSetting,
+      getExerciseHistory, appendExercisePerformance,
+      getAllBodyMetrics, putBodyMetric,
+      exportAllData, importAllData,
+    } from './js/db.js';
 
     const results = document.getElementById('results');
     const checks = [];
-    const check = (name, fn) => {
+    const check = async (name, fn) => {
       let ok = false;
       let detail = '';
       try {
-        const r = fn();
+        const r = await fn();
         ok = r === true;
         if (!ok) detail = typeof r === 'string' ? r : 'assertion false';
       } catch (err) {
@@ -28,42 +34,88 @@
       checks.push({ name, ok, detail });
     };
 
-    check('DAY_ORDER has 7 entries', () => DAY_ORDER.length === 7 || `length ${DAY_ORDER.length}`);
+    await check('DAY_ORDER has 7 entries', () => DAY_ORDER.length === 7 || `length ${DAY_ORDER.length}`);
 
-    check('every DAY_ORDER key exists in DAYS', () => {
+    await check('every DAY_ORDER key exists in DAYS', () => {
       const missing = DAY_ORDER.filter((d) => !(d in DAYS));
       return missing.length === 0 || `missing: ${missing.join(', ')}`;
     });
 
-    check('every non-rest day has at least 7 exercises', () => {
+    await check('every non-rest day has at least 7 exercises', () => {
       const short = DAY_ORDER.filter((d) => !DAYS[d].isRestDay && DAYS[d].exercises.length < 7)
         .map((d) => `${d}=${DAYS[d].exercises.length}`);
       return short.length === 0 || `short: ${short.join(', ')}`;
     });
 
-    check('every PlanExercise id is unique across all days', () => {
+    await check('every PlanExercise id is unique across all days', () => {
       const ids = DAY_ORDER.flatMap((d) => DAYS[d].exercises.map((e) => e.id));
       const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
       return dupes.length === 0 || `duplicates: ${[...new Set(dupes)].join(', ')}`;
     });
 
-    check('BLOCK_STRUCTURE covers weeks 1-12 exactly once', () => {
+    await check('BLOCK_STRUCTURE covers weeks 1-12 exactly once', () => {
       const weeks = BLOCK_STRUCTURE.flatMap((b) => b.weeks).sort((a, b) => a - b);
       const expected = Array.from({ length: 12 }, (_, i) => i + 1);
       return JSON.stringify(weeks) === JSON.stringify(expected) || `weeks: ${weeks.join(',')}`;
     });
 
-    check('MEAL_PLAN has all 7 day keys with a meals array', () => {
+    await check('MEAL_PLAN has all 7 day keys with a meals array', () => {
       const bad = DAY_ORDER.filter((d) => !MEAL_PLAN[d] || !Array.isArray(MEAL_PLAN[d].meals));
       return bad.length === 0 || `bad: ${bad.join(', ')}`;
     });
 
-    check('MEAL_PLAN meal kcal sums match dayTotalKcal within 5', () => {
+    await check('MEAL_PLAN meal kcal sums match dayTotalKcal within 5', () => {
       const off = DAY_ORDER.map((d) => {
         const sum = MEAL_PLAN[d].meals.reduce((s, m) => s + m.kcal, 0);
         return { d, diff: sum - MEAL_PLAN[d].dayTotalKcal };
       }).filter((x) => Math.abs(x.diff) > 5);
       return off.length === 0 || off.map((x) => `${x.d}:${x.diff}`).join(', ');
+    });
+
+    // --- js/db.js (Task 2) -------------------------------------------------
+    // Baseline reads (rather than hardcoded 0/1/2) keep these assertions
+    // correct even if tests.html is re-run against an IndexedDB database
+    // that already has data from a previous run (see brief Step 3 note on
+    // stale databases). On a fresh DB these behave exactly like the literal
+    // 1/2 lengths the task brief describes.
+
+    await check('putSetting/getSetting round-trips a value', async () => {
+      await putSetting({ id: 'app', weightKg: 67 });
+      const setting = await getSetting();
+      return (setting !== null && setting.id === 'app' && setting.weightKg === 67)
+        || `got ${JSON.stringify(setting)}`;
+    });
+
+    const exerciseId = 'incline-db-press';
+    const baselineHistory = await getExerciseHistory(exerciseId);
+    const baselineLen = baselineHistory.length;
+    const entry1 = { date: '2026-01-01', weekNumber: 1, sets: [{ weight: 20, reps: 8, rir: 2, isWarmup: false }] };
+
+    await check('appendExercisePerformance + getExerciseHistory returns the appended entry', async () => {
+      await appendExercisePerformance(exerciseId, entry1);
+      const history = await getExerciseHistory(exerciseId);
+      const last = history[history.length - 1];
+      return (history.length === baselineLen + 1 && JSON.stringify(last) === JSON.stringify(entry1))
+        || `length ${history.length}, last=${JSON.stringify(last)}`;
+    });
+
+    await check('a second appendExercisePerformance call appends, not overwrites', async () => {
+      const entry2 = { date: '2026-01-08', weekNumber: 2, sets: [{ weight: 22, reps: 8, rir: 1, isWarmup: false }] };
+      await appendExercisePerformance(exerciseId, entry2);
+      const history = await getExerciseHistory(exerciseId);
+      const first = history[baselineLen];
+      return (history.length === baselineLen + 2 && JSON.stringify(first) === JSON.stringify(entry1))
+        || `length ${history.length}, first-new-entry=${JSON.stringify(first)}`;
+    });
+
+    await check('exportAllData then importAllData reproduces identical getAllBodyMetrics output', async () => {
+      await putBodyMetric({ date: '2026-02-02', weightKg: 70.2, waistCm: 81, note: 'db-test' });
+      const before = await getAllBodyMetrics();
+      const dump = await exportAllData();
+      await importAllData(dump);
+      const after = await getAllBodyMetrics();
+      return JSON.stringify(before) === JSON.stringify(after)
+        || `before=${JSON.stringify(before)} after=${JSON.stringify(after)}`;
     });
 
     for (const { name, ok, detail } of checks) {
