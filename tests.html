@@ -118,6 +118,57 @@
         || `before=${JSON.stringify(before)} after=${JSON.stringify(after)}`;
     });
 
+    // --- js/week.js (Task 3) ----------------------------------------------
+    // Loaded dynamically so a missing or broken module fails only these
+    // checks instead of blanking the whole page (keeps Task 1-2 results visible).
+    const week = await import('./js/week.js').catch((err) => ({ loadError: err.message }));
+    const eq = (actual, expected) => (JSON.stringify(actual) === JSON.stringify(expected)
+      || `got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
+    const START = '2026-01-05'; // Monday (verified: new Date('2026-01-05T00:00:00').getDay() === 1)
+
+    await check('getWeekNumber: start date is week 1', () => eq(week.getWeekNumber(START, '2026-01-05'), 1));
+    await check('getWeekNumber: last day of week 1 is week 1', () => eq(week.getWeekNumber(START, '2026-01-11'), 1));
+    await check('getWeekNumber: day 7 starts week 2', () => eq(week.getWeekNumber(START, '2026-01-12'), 2));
+    await check('getWeekNumber: day before start is null', () => eq(week.getWeekNumber(START, '2026-01-04'), null));
+    await check('getWeekNumber: last day of week 12 (day 83) is week 12', () => eq(week.getWeekNumber(START, '2026-03-29'), 12));
+    await check('getWeekNumber: first day after week 12 (day 84) is null', () => eq(week.getWeekNumber(START, '2026-03-30'), null));
+    await check('getWeekNumber: well past week 12 (2027-06-01) is null, not clamped to 12', () => eq(week.getWeekNumber(START, '2027-06-01'), null));
+
+    await check('getPhaseForWeek(1).phase is intro', () => eq(week.getPhaseForWeek(1).phase, 'intro'));
+    await check('getPhaseForWeek(6).setMultiplier is 0.5 (deload)', () => eq(week.getPhaseForWeek(6).setMultiplier, 0.5));
+    await check('getPhaseForWeek(12).phase is deload2', () => eq(week.getPhaseForWeek(12).phase, 'deload2'));
+    await check('getPhaseForWeek(13) is null', () => eq(week.getPhaseForWeek(13), null));
+    await check('getPhaseForWeek(0) is null', () => eq(week.getPhaseForWeek(0), null));
+
+    await check('getDayKeyForDate: 2026-01-05 (Monday) is mon', () => eq(week.getDayKeyForDate('2026-01-05'), 'mon'));
+    await check('getDayKeyForDate: 2026-01-11 (Sunday) is sun', () => eq(week.getDayKeyForDate('2026-01-11'), 'sun'));
+
+    await check('isCheckinWeek true for 4, 8, 12', () => eq([4, 8, 12].map((w) => week.isCheckinWeek(w)), [true, true, true]));
+    await check('isCheckinWeek false for 1 and 5', () => eq([1, 5].map((w) => week.isCheckinWeek(w)), [false, false]));
+
+    await check('getWeekInfo: start date composes week 1 / mon / intro', () => {
+      const info = week.getWeekInfo(START, START);
+      return eq([info.weekNumber, info.dayKey, info.phaseInfo.phase, info.isCheckinWeek, info.isPlanComplete],
+        [1, 'mon', 'intro', false, false]);
+    });
+    await check('getWeekInfo: week 12 is a check-in week, not plan complete', () => {
+      const info = week.getWeekInfo(START, '2026-03-29');
+      return eq([info.weekNumber, info.phaseInfo.phase, info.isCheckinWeek, info.isPlanComplete],
+        [12, 'deload2', true, false]);
+    });
+    await check('getWeekInfo: day 84 (week 13 boundary) is plan complete', () => {
+      const info = week.getWeekInfo(START, '2026-03-30');
+      return eq([info.weekNumber, info.phaseInfo, info.isPlanComplete], [null, null, true]);
+    });
+    await check('getWeekInfo: well past week 12 (2027-06-01) is plan complete', () => {
+      const info = week.getWeekInfo(START, '2027-06-01');
+      return eq([info.weekNumber, info.phaseInfo, info.isCheckinWeek, info.isPlanComplete], [null, null, false, true]);
+    });
+    await check('getWeekInfo: before start is not plan complete', () => {
+      const info = week.getWeekInfo(START, '2026-01-04');
+      return eq([info.weekNumber, info.isPlanComplete], [null, false]);
+    });
+
     for (const { name, ok, detail } of checks) {
       const li = document.createElement('li');
       li.textContent = `${ok ? 'PASS' : 'FAIL'} - ${name}${ok ? '' : ` (${detail})`}`;
