@@ -10,7 +10,15 @@
 
 import { DAYS, WARMUP_STEPS } from '../data/plan.js';
 import { getWeekInfo } from '../week.js';
-import { getSetting } from '../db.js';
+import {
+  getSetting,
+  getExerciseHistory,
+  appendExercisePerformance,
+  getSessionLog,
+  putSessionLog,
+} from '../db.js';
+import { recommendNextSession, getLastPerformance } from '../progression.js';
+import { startRestTimer } from '../timer.js';
 
 // ---------------------------------------------------------------------------
 // Global exercise-by-id lookup, built once across ALL days (not just
@@ -208,6 +216,220 @@ function lastSetRirNote(exercise, phaseInfo) {
 }
 
 // ---------------------------------------------------------------------------
+// Set logger helpers.
+// ---------------------------------------------------------------------------
+
+/**
+ * Parses a PlanExercise `rest` string ('2-3 min', '60-90 s', '2 min', '30 s',
+ * or '—' for exercises with no set-based rest, e.g. a timed cardio block)
+ * into a millisecond duration for the rest timer, taking the UPPER bound of
+ * a range. Exercises with no numeric rest at all resolve to 0ms rather than
+ * throwing, so the (rare) bodyweight/cardio rows with rest '—' never crash
+ * the logger — there's simply nothing meaningful to time.
+ * @param {string} restString
+ * @returns {number}
+ */
+function parseRestMs(restString) {
+  const numbers = String(restString).match(/\d+(?:\.\d+)?/g);
+  if (!numbers || numbers.length === 0) return 0;
+  const upperBound = Math.max(...numbers.map(Number));
+  const isMinutes = /min/i.test(restString);
+  return upperBound * (isMinutes ? 60000 : 1000);
+}
+
+/** Rounds to the nearest 0.5 — guards against float drift from repeated ±2.5 taps. */
+function roundToHalf(value) {
+  return Math.round(value * 2) / 2;
+}
+
+/** Renders one logged set as e.g. "40kg × 8 @ RIR 1 (warm-up)". */
+function formatSetSummary(set) {
+  if (!set) return '—';
+  const warmupTag = set.isWarmup ? ' (warm-up)' : '';
+  return `${set.weight}kg × ${set.reps} @ RIR ${set.rir}${warmupTag}`;
+}
+
+/** Renders a recommendNextSession() result as the brief's exact phrasing. */
+function formatRecommendation(rec) {
+  if (rec.type === 'noHistory') {
+    return 'No history yet — log your first set to get a recommendation.';
+  }
+  if (rec.type === 'increaseWeight') {
+    const amountText = typeof rec.amount === 'number' ? `+${rec.amount}kg` : `+${rec.amount}`;
+    return `Increase weight next session: ${amountText}`;
+  }
+  return `Beat last time: aim for ${rec.targetReps} reps`;
+}
+
+/**
+ * (Re)renders the full set-logger section for one exercise into `details`,
+ * re-reading exercise history fresh each time so "last time" and the
+ * recommendation immediately reflect a just-finalized session (no reload
+ * needed — though a reload shows the same thing, since it's all read from
+ * IndexedDB).
+ * @param {HTMLElement} details
+ * @param {object} exercise resolved PlanExercise (already swap-resolved by resolveDayExercises)
+ * @param {object|null} phaseInfo
+ * @param {{draft: object}} sessionCtx
+ */
+async function renderLoggerSection(details, exercise, phaseInfo, sessionCtx) {
+  const history = await getExerciseHistory(exercise.id);
+  const last = getLastPerformance(history);
+  const rec = recommendNextSession(exercise, history);
+  const targetSets = adjustedSets(exercise, phaseInfo);
+
+  const exState = sessionCtx.draft.exercises[exercise.id]
+    ?? (sessionCtx.draft.exercises[exercise.id] = { sets: [], finalized: false });
+
+  details.innerHTML = '';
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'set-logger';
+
+  const recEl = document.createElement('p');
+  recEl.className = 'set-logger-recommendation';
+  recEl.textContent = formatRecommendation(rec);
+  wrapper.appendChild(recEl);
+
+  for (let index = 0; index < targetSets; index += 1) {
+    wrapper.appendChild(
+      renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, details),
+    );
+  }
+
+  details.appendChild(wrapper);
+}
+
+/**
+ * Renders a single target-set row: last time's data for this slot, weight
+ * (+/- 2.5kg) / reps / RIR inputs, a warm-up/working toggle, and a log-set
+ * action. On log, this is the ONLY place exState.sets is mutated and the
+ * ONLY place that decides whether this was the exercise's last working set
+ * (the highest-index row — among ALL target rows, not just logged ones —
+ * currently toggled "working" in the UI right now).
+ */
+function renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, details) {
+  const row = document.createElement('div');
+  row.className = 'set-row';
+
+  const label = document.createElement('span');
+  label.className = 'set-row-label';
+  label.textContent = `Set ${index + 1}`;
+  row.appendChild(label);
+
+  const lastEl = document.createElement('span');
+  lastEl.className = 'set-row-lasttime';
+  lastEl.textContent = `Last time: ${formatSetSummary(last?.sets?.[index])}`;
+  row.appendChild(lastEl);
+
+  const existing = exState.sets[index];
+
+  const weightInput = document.createElement('input');
+  weightInput.type = 'number';
+  weightInput.step = '2.5';
+  weightInput.inputMode = 'decimal';
+  weightInput.className = 'set-input weight-input';
+  weightInput.placeholder = 'kg';
+  weightInput.setAttribute('aria-label', `Set ${index + 1} weight (kg)`);
+  if (existing) weightInput.value = String(existing.weight);
+
+  const minusBtn = document.createElement('button');
+  minusBtn.type = 'button';
+  minusBtn.className = 'weight-btn';
+  minusBtn.textContent = '−2.5';
+  minusBtn.setAttribute('aria-label', `Decrease set ${index + 1} weight by 2.5kg`);
+  minusBtn.addEventListener('click', () => {
+    const current = parseFloat(weightInput.value) || 0;
+    weightInput.value = String(Math.max(0, roundToHalf(current - 2.5)));
+  });
+
+  const plusBtn = document.createElement('button');
+  plusBtn.type = 'button';
+  plusBtn.className = 'weight-btn';
+  plusBtn.textContent = '+2.5';
+  plusBtn.setAttribute('aria-label', `Increase set ${index + 1} weight by 2.5kg`);
+  plusBtn.addEventListener('click', () => {
+    const current = parseFloat(weightInput.value) || 0;
+    weightInput.value = String(roundToHalf(current + 2.5));
+  });
+
+  const weightControl = document.createElement('div');
+  weightControl.className = 'weight-control';
+  weightControl.append(minusBtn, weightInput, plusBtn);
+  row.appendChild(weightControl);
+
+  const repsInput = document.createElement('input');
+  repsInput.type = 'number';
+  repsInput.className = 'set-input reps-input';
+  repsInput.placeholder = 'reps';
+  repsInput.setAttribute('aria-label', `Set ${index + 1} reps`);
+  if (existing) repsInput.value = String(existing.reps);
+  row.appendChild(repsInput);
+
+  const rirInput = document.createElement('input');
+  rirInput.type = 'number';
+  rirInput.className = 'set-input rir-input';
+  rirInput.placeholder = 'RIR';
+  rirInput.setAttribute('aria-label', `Set ${index + 1} RIR`);
+  if (existing) rirInput.value = String(existing.rir);
+  row.appendChild(rirInput);
+
+  const toggleLabel = document.createElement('label');
+  toggleLabel.className = 'set-row-toggle';
+  const toggleInput = document.createElement('input');
+  toggleInput.type = 'checkbox';
+  toggleInput.checked = existing ? Boolean(existing.isWarmup) : false;
+  toggleLabel.append(toggleInput, document.createTextNode('Warm-up'));
+  row.appendChild(toggleLabel);
+
+  const logBtn = document.createElement('button');
+  logBtn.type = 'button';
+  logBtn.className = 'log-set-btn';
+  logBtn.textContent = existing ? 'Update set' : 'Log set';
+  logBtn.addEventListener('click', async () => {
+    const weight = parseFloat(weightInput.value);
+    const reps = parseFloat(repsInput.value);
+    const rir = rirInput.value === '' ? 0 : parseFloat(rirInput.value);
+    if (!Number.isFinite(weight) || !Number.isFinite(reps)) return;
+
+    const setEntry = {
+      weight,
+      reps,
+      rir: Number.isFinite(rir) ? rir : 0,
+      isWarmup: toggleInput.checked,
+    };
+    exState.sets[index] = setEntry;
+    await putSessionLog(sessionCtx.draft);
+
+    // The last working set = the highest-index target row CURRENTLY toggled
+    // "working" (unchecked) in the UI, not merely the highest-index row
+    // logged so far — this keeps the trigger correct even if the trainee
+    // marks a later row as warm-up.
+    const toggleInputs = Array.from(details.querySelectorAll('.set-row-toggle input'));
+    let lastWorkingIndex = -1;
+    toggleInputs.forEach((input, i) => {
+      if (!input.checked) lastWorkingIndex = i;
+    });
+
+    if (!exState.finalized && !setEntry.isWarmup && index === lastWorkingIndex) {
+      await appendExercisePerformance(exercise.id, {
+        date: sessionCtx.draft.date,
+        weekNumber: sessionCtx.draft.weekNumber,
+        sets: exState.sets.filter(Boolean),
+      });
+      startRestTimer(parseRestMs(exercise.rest));
+      exState.finalized = true;
+      await putSessionLog(sessionCtx.draft);
+    }
+
+    await renderLoggerSection(details, exercise, phaseInfo, sessionCtx);
+  });
+  row.appendChild(logBtn);
+
+  return row;
+}
+
+// ---------------------------------------------------------------------------
 // Styles (injected once, reusing the shared theme's custom properties).
 // ---------------------------------------------------------------------------
 
@@ -319,6 +541,75 @@ function injectStyles() {
     .stomach-vacuum-reminder {
       color: var(--accent);
     }
+    .set-logger {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .set-logger-recommendation {
+      margin: 0;
+      font-weight: 600;
+      color: var(--accent);
+    }
+    .set-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+    }
+    .set-row:first-of-type {
+      border-top: none;
+      padding-top: 0;
+    }
+    .set-row-label {
+      font-weight: 600;
+      min-width: 44px;
+    }
+    .set-row-lasttime {
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      flex: 1 1 100%;
+    }
+    .set-input {
+      width: 56px;
+      min-height: var(--tap-min);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: inherit;
+      padding: 4px 6px;
+    }
+    .weight-control {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .weight-btn {
+      min-height: var(--tap-min);
+      min-width: var(--tap-min);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface-alt);
+      color: inherit;
+    }
+    .set-row-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+    .log-set-btn {
+      min-height: var(--tap-min);
+      border: none;
+      border-radius: var(--radius);
+      background: var(--accent);
+      color: var(--surface);
+      padding: 4px 10px;
+      font-weight: 600;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -327,7 +618,7 @@ function injectStyles() {
 // Rendering.
 // ---------------------------------------------------------------------------
 
-function renderExerciseRow(exercise, phaseInfo) {
+function renderExerciseRow(exercise, phaseInfo, sessionCtx) {
   const row = document.createElement('div');
   row.className = 'exercise-row';
 
@@ -358,16 +649,23 @@ function renderExerciseRow(exercise, phaseInfo) {
     header.appendChild(notesEl);
   }
 
-  // Empty placeholder — Task 10 fills this in with the set logger.
   const details = document.createElement('div');
   details.className = 'exercise-details';
   details.hidden = true;
   details.dataset.exerciseId = exercise.id;
 
+  // Lazily build the set logger the first time this row is expanded, per
+  // the brief's "when expanded, shows..." — avoids an upfront
+  // getExerciseHistory() round-trip per exercise on every tab render.
+  let loggerLoaded = false;
   header.addEventListener('click', () => {
     const expanded = header.getAttribute('aria-expanded') === 'true';
     header.setAttribute('aria-expanded', String(!expanded));
     details.hidden = expanded;
+    if (!expanded && !loggerLoaded) {
+      loggerLoaded = true;
+      renderLoggerSection(details, exercise, phaseInfo, sessionCtx);
+    }
   });
 
   row.append(header, details);
@@ -392,7 +690,7 @@ function renderRestDay(root, day) {
   root.appendChild(card);
 }
 
-function renderTrainingDay(root, day, dayKey, phaseInfo) {
+function renderTrainingDay(root, day, dayKey, phaseInfo, sessionCtx) {
   const warmup = document.createElement('div');
   warmup.className = 'warmup-checklist';
 
@@ -418,7 +716,7 @@ function renderTrainingDay(root, day, dayKey, phaseInfo) {
   list.className = 'exercise-list';
   const exercises = resolveDayExercises(dayKey, phaseInfo);
   exercises.forEach((exercise) => {
-    list.appendChild(renderExerciseRow(exercise, phaseInfo));
+    list.appendChild(renderExerciseRow(exercise, phaseInfo, sessionCtx));
   });
   root.appendChild(list);
 }
@@ -494,7 +792,21 @@ export async function renderTodayTab(container) {
   if (day.isRestDay) {
     renderRestDay(root, day);
   } else {
-    renderTrainingDay(root, day, dayKey, phaseInfo);
+    // The session draft is keyed by date+day (not week number) so logging
+    // against "today" is unambiguous even across plan restarts. Loaded (not
+    // recreated) if a log already exists for today, so a mid-session reload
+    // doesn't lose sets already logged before the page was reloaded.
+    const sessionId = `${todayISO()}_${dayKey}`;
+    const existingLog = await getSessionLog(sessionId);
+    const draft = existingLog ?? {
+      id: sessionId,
+      date: todayISO(),
+      dayKey,
+      weekNumber,
+      exercises: {},
+    };
+    const sessionCtx = { draft };
+    renderTrainingDay(root, day, dayKey, phaseInfo, sessionCtx);
   }
 
   container.appendChild(root);
