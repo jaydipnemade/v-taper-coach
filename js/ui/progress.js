@@ -235,9 +235,9 @@ function injectStyles() {
     .checkin-field select {
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      background: var(--surface-alt);
+      background-color: var(--surface-alt);
       color: inherit;
-      padding: 8px 10px;
+      padding: 8px 34px 8px 10px;
       min-height: var(--tap-min);
     }
     .checkin-lift-hint {

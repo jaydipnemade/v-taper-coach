@@ -119,12 +119,15 @@ function injectStyles() {
     }
     .settings-field input,
     .settings-field select {
-      background: var(--surface);
+      background-color: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 8px 10px;
       min-height: var(--tap-min);
       font-size: 1rem;
+    }
+    .settings-field select {
+      padding-right: 34px;
     }
     .settings-checkbox-field {
       margin-top: -4px;

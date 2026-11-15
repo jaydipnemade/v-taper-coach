@@ -34,11 +34,17 @@
   --success: #35e0a1;      /* done/completed states only */
   --success-text: #04140d;
   --danger: #ff6b6b;       /* reserved for destructive actions/warnings */
+  --bg-glow: rgba(61, 139, 255, 0.1); /* faint page-level depth wash, not a card accent */
 
   --card-shadow: 0 4px 20px -6px var(--accent-glow);
 
   --tap-min: 44px;         /* iOS minimum comfortable tap target */
   --radius: 10px;
+
+  /* Renders native form-control chrome (date-picker icon, number-input
+     spinners, scrollbars) light-on-dark instead of the browser's light-mode
+     default, which was otherwise nearly invisible against this theme. */
+  color-scheme: dark;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -71,6 +77,10 @@ body {
     Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  /* A faint fixed glow behind the content for depth, instead of perfectly
+     flat black — cards keep their own separate glow border on top of this. */
+  background: radial-gradient(ellipse 900px 600px at 50% -150px, var(--bg-glow), transparent 70%), var(--bg);
+  background-attachment: fixed;
   /* Respect iOS safe areas at the page edges too (notch/home-indicator). */
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
@@ -165,6 +175,22 @@ button {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   transition: transform 0.08s ease;
+}
+
+/* Custom select arrow — the native chevron renders inconsistently (and, in
+   some browsers, in a light-mode color) across platforms in a dark theme, so
+   draw one explicitly. Uses background-image/-position/-size (not the
+   `background` shorthand) so a more specific rule setting background-color
+   elsewhere doesn't blank this back out. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--surface-alt);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%2393a0a8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 11px 7px;
+  padding-right: 34px;
 }
 
 /* Tap feedback on every button in the app — a gym-use affordance: a quick
