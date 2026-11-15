@@ -463,14 +463,26 @@ function renderLogTable(bodyStats, liftStats, dateMap, startDateISO, currentWeek
 // Check-in wizard.
 // ---------------------------------------------------------------------------
 
+// checkin.decision/checkin.action originate from IndexedDB (a `checkins`
+// record), which an imported backup file could have populated with
+// arbitrary strings — rendered via textContent (never innerHTML) below as
+// defense in depth against a crafted backup injecting markup.
 function renderCheckinSummary(checkin) {
   const wrap = document.createElement('div');
   wrap.className = 'checkin-result';
-  wrap.innerHTML = `
-    <p class="checkin-decision">${checkin.decision}</p>
-    <p>${checkin.action}</p>
-    <p class="checkin-done-note">Applied ${checkin.kcalChange >= 0 ? '+' : ''}${checkin.kcalChange} kcal/day to your calorie target.</p>
-  `;
+
+  const decisionEl = document.createElement('p');
+  decisionEl.className = 'checkin-decision';
+  decisionEl.textContent = checkin.decision;
+
+  const actionEl = document.createElement('p');
+  actionEl.textContent = checkin.action;
+
+  const noteEl = document.createElement('p');
+  noteEl.className = 'checkin-done-note';
+  noteEl.textContent = `Applied ${checkin.kcalChange >= 0 ? '+' : ''}${checkin.kcalChange} kcal/day to your calorie target.`;
+
+  wrap.append(decisionEl, actionEl, noteEl);
   return wrap;
 }
 
@@ -543,16 +555,36 @@ function renderCheckinSection({
   const waistMissing = firstAvg.avgWaist == null || lastAvg.avgWaist == null;
   const missingData = weightMissing || waistMissing;
 
+  // A missing endpoint forces that delta to exactly 0 (see the comment
+  // above) — but 0 is ALSO a real, meaningful value calorieDecision checks
+  // for (row 2's "surplus too small" match, among others). Calling
+  // calorieDecision at all here would let a manufactured "0 change" (really
+  // "unknown", not a measured plateau) drive a real, applicable calorie
+  // override. So with missing data, this never even offers the decision —
+  // no form, no "See decision", no "Confirm & apply" — only a message
+  // telling the trainee to log more data first.
   if (missingData) {
-    const warning = document.createElement('p');
-    warning.className = 'checkin-warning';
     const missingWhich = [
       weightMissing ? 'weight' : null,
       waistMissing ? 'waist' : null,
     ].filter(Boolean).join(' and ');
-    warning.textContent = `Note: missing ${missingWhich} data for week ${firstWeek} or week ${weekNumber} — `
-      + `the ${missingWhich} change below is shown as 0 (unknown), not a real measured change.`;
+    const warning = document.createElement('p');
+    warning.className = 'checkin-warning';
+    warning.textContent = `Not enough data — log more ${missingWhich} entries before this check-in `
+      + `(need an average for both week ${firstWeek} and week ${weekNumber}).`;
     section.appendChild(warning);
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'checkin-btn is-secondary';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', async () => {
+      checkinWizardState = null;
+      await rerender();
+    });
+    section.appendChild(cancelBtn);
+
+    return section;
   }
 
   const liftHints = document.createElement('ul');
