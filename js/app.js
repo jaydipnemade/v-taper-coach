@@ -3,8 +3,9 @@
 // router, and PWA registration. No business logic lives here — this module
 // only sequences calls into the other modules.
 
+import './installPrompt.js';
 import { openDB } from './db.js';
-import { runFirstRunSetupIfNeeded, renderSettingsTab } from './ui/settings.js';
+import { runFirstRunSetupIfNeeded, runInstallPromptIfNeeded, renderSettingsTab } from './ui/settings.js';
 import { initRouter } from './ui/router.js';
 import { renderTodayTab } from './ui/today.js';
 import { renderDietTab } from './ui/diet.js';
@@ -18,6 +19,12 @@ async function main() {
   // form, but only when no settings record exists yet. Resolves immediately
   // on every subsequent load.
   await runFirstRunSetupIfNeeded(document.getElementById('app'));
+
+  // Shows the "add to home screen" overlay exactly once (ever) — including
+  // once for installs that predate this feature — then never again; see
+  // js/ui/settings.js for the persisted flag and js/installPrompt.js for the
+  // native-install-button plumbing it shares with the permanent Settings card.
+  await runInstallPromptIfNeeded(document.getElementById('app'));
 
   initRouter({
     today: renderTodayTab,

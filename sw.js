@@ -6,7 +6,7 @@
 // and `activate` deletes every cache whose name isn't the current one, which
 // is how old precached assets get evicted on upgrade.
 
-const CACHE_NAME = 'vtaper-coach-v4';
+const CACHE_NAME = 'vtaper-coach-v5';
 
 const PRECACHE_URLS = [
   './',
@@ -14,6 +14,7 @@ const PRECACHE_URLS = [
   'manifest.webmanifest',
   'css/styles.css',
   'js/app.js',
+  'js/installPrompt.js',
   'js/data/plan.js',
   'js/db.js',
   'js/charts.js',

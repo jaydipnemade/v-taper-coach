@@ -36,6 +36,11 @@
 //       // before this field existed; every read site treats that the same
 //       // as 1 (`settings?.blockNumber ?? 1`). Incremented by the "Start new
 //       // block" action each time startDate is moved forward.
+//     hasSeenInstallPrompt?: boolean,  // true once the one-time "add to home
+//       // screen" overlay (runInstallPromptIfNeeded) has been shown and
+//       // dismissed. Absent/false shows it; the permanent "Install this app"
+//       // Settings card re-shows the same content on demand without
+//       // touching this flag.
 //   }
 //
 // Height/weight are always persisted in metric regardless of the `units`
@@ -43,6 +48,7 @@
 // at the form boundary.
 
 import { getSetting, putSetting, exportAllData, importAllData, clearCheckins } from '../db.js';
+import { hasDeferredInstallPrompt, promptInstall, isStandalone } from '../installPrompt.js';
 import { GROCERY_LIST, SUPPLEMENTS, SUNDAY_PREP_STEPS, MORNING_TRAINING_NOTE } from '../data/plan.js';
 import { getWeekInfo } from '../week.js';
 
@@ -261,6 +267,64 @@ function injectStyles() {
       color: var(--text-dim);
       margin-top: 0;
       margin-bottom: 24px;
+    }
+    .install-info h3 {
+      font-size: 0.9rem;
+      margin: 20px 0 8px;
+    }
+    .install-info h3:first-child {
+      margin-top: 0;
+    }
+    .install-why-list {
+      margin: 0;
+      padding-left: 20px;
+      color: var(--text-dim);
+    }
+    .install-why-list li {
+      margin-bottom: 6px;
+    }
+    .install-already {
+      color: var(--success);
+      font-weight: 600;
+    }
+    .install-now-btn {
+      display: block;
+      width: 100%;
+      background: var(--accent);
+      color: var(--accent-text);
+      border-color: var(--accent);
+      font-weight: 600;
+      min-height: var(--tap-min);
+      margin-bottom: 12px;
+    }
+    .install-steps {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 12px;
+      margin-bottom: 8px;
+    }
+    .install-steps summary {
+      cursor: pointer;
+      padding: 4px 0;
+      min-height: var(--tap-min);
+      display: flex;
+      align-items: center;
+      font-size: 0.9rem;
+    }
+    .install-steps ol {
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      margin: 4px 0 8px;
+      padding-left: 20px;
+    }
+    .install-steps li {
+      margin-bottom: 6px;
+    }
+    .install-dismiss-btn {
+      display: block;
+      width: 100%;
+      min-height: var(--tap-min);
+      margin-top: 20px;
     }
   `;
   document.head.appendChild(style);
@@ -834,6 +898,224 @@ function renderBackupCard(settings, container) {
 }
 
 /**
+ * @returns {'ios'|'android'|'desktop'} Best-effort device-class guess used
+ * only to decide which install-steps block opens expanded by default — all
+ * three are always present underneath, so a wrong guess never hides anything.
+ */
+function detectInstallPlatform() {
+  const ua = navigator.userAgent;
+  const isIOS =
+    /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS) return 'ios';
+  if (/Android/.test(ua)) return 'android';
+  return 'desktop';
+}
+
+/**
+ * Builds one <details>-wrapped numbered-steps block.
+ * @param {string} title
+ * @param {string[]} steps
+ * @param {boolean} open
+ * @returns {HTMLElement}
+ */
+function renderInstallSteps(title, steps, open) {
+  const details = document.createElement('details');
+  details.className = 'install-steps';
+  details.open = open;
+
+  const summary = document.createElement('summary');
+  summary.textContent = title;
+  details.appendChild(summary);
+
+  const ol = document.createElement('ol');
+  steps.forEach((step) => {
+    const li = document.createElement('li');
+    li.textContent = step;
+    ol.appendChild(li);
+  });
+  details.appendChild(ol);
+
+  return details;
+}
+
+/**
+ * Builds the shared "why install / how to install" content — used both by
+ * the one-time first-open overlay (runInstallPromptIfNeeded) and by the
+ * permanent "Install this app" Settings card, so the two never drift apart.
+ * When already running installed (standalone), skips straight to a short
+ * confirmation instead of instructions that no longer apply.
+ * @returns {HTMLElement}
+ */
+function buildInstallInfo() {
+  const wrap = document.createElement('div');
+  wrap.className = 'install-info';
+
+  if (isStandalone()) {
+    const note = document.createElement('p');
+    note.className = 'install-already';
+    note.textContent = "You're already using the installed app — nothing more to do here.";
+    wrap.appendChild(note);
+    return wrap;
+  }
+
+  const whyHeading = document.createElement('h3');
+  whyHeading.textContent = 'Why install it';
+  wrap.appendChild(whyHeading);
+
+  const whyList = document.createElement('ul');
+  whyList.className = 'install-why-list';
+  [
+    'Works with zero signal — once it has loaded itself in, it keeps running with no reception at all, like in a gym basement.',
+    'Opens full-screen like a real app — no address bar or browser tabs to fight with mid-set.',
+    'One tap from your home screen or desktop, instead of hunting down a browser tab every time.',
+    'Everything stays on this device — your workout, diet, and body data never leaves it.',
+  ].forEach((text) => {
+    const li = document.createElement('li');
+    li.textContent = text;
+    whyList.appendChild(li);
+  });
+  wrap.appendChild(whyList);
+
+  const howHeading = document.createElement('h3');
+  howHeading.textContent = 'How to install it';
+  wrap.appendChild(howHeading);
+
+  // Native one-tap install — only Chrome/Edge on Android or desktop ever
+  // offer this event; Safari and Firefox never do, hence the manual steps
+  // below regardless of whether this button renders.
+  if (hasDeferredInstallPrompt()) {
+    const installBtn = document.createElement('button');
+    installBtn.type = 'button';
+    installBtn.className = 'install-now-btn';
+    installBtn.textContent = 'Install now';
+    installBtn.addEventListener('click', async () => {
+      installBtn.disabled = true;
+      const outcome = await promptInstall();
+      if (outcome === 'accepted') {
+        installBtn.textContent = 'Installed';
+      } else {
+        installBtn.disabled = false;
+      }
+    });
+    wrap.appendChild(installBtn);
+  }
+
+  const platform = detectInstallPlatform();
+
+  wrap.appendChild(
+    renderInstallSteps(
+      'On iPhone/iPad (Safari)',
+      [
+        "Open this page in Safari — it has to be Safari, since other browsers can't install home-screen apps on iOS.",
+        'Tap the Share icon (the square with an arrow pointing up) in the toolbar.',
+        "Scroll down and tap 'Add to Home Screen'.",
+        "Tap 'Add' in the top-right corner.",
+      ],
+      platform === 'ios'
+    )
+  );
+  wrap.appendChild(
+    renderInstallSteps(
+      'On Android (Chrome)',
+      [
+        "If there's no 'Install now' button above, open the browser menu (⋮).",
+        "Tap 'Install app' or 'Add to Home screen'.",
+        'Confirm by tapping Install/Add.',
+      ],
+      platform === 'android'
+    )
+  );
+  wrap.appendChild(
+    renderInstallSteps(
+      'On a computer (Chrome/Edge)',
+      [
+        "If there's no 'Install now' button above, look for an install icon (a small screen with a down arrow) at the right edge of the address bar.",
+        "Or open the browser menu and choose 'Install V-Taper Coach…'.",
+        'Click Install to confirm — it opens in its own window with a desktop/taskbar icon, separate from the browser.',
+      ],
+      platform === 'desktop'
+    )
+  );
+
+  return wrap;
+}
+
+/**
+ * Builds the permanent "Install this app" Settings card — the same
+ * why/how content as the one-time overlay below, available on demand and
+ * not gated on (or affecting) the `hasSeenInstallPrompt` flag.
+ * @returns {HTMLElement}
+ */
+function renderInstallCard() {
+  const card = document.createElement('section');
+  card.className = 'settings-card';
+  card.setAttribute('data-settings-section', 'install');
+
+  const heading = document.createElement('h2');
+  heading.textContent = 'Install this app';
+  card.appendChild(heading);
+
+  card.appendChild(buildInstallInfo());
+
+  return card;
+}
+
+/**
+ * Shows the one-time "add to home screen" overlay — full-screen, same
+ * pattern as the first-run profile gate above — the first time this app
+ * ever loads without `settings.hasSeenInstallPrompt` set, including once for
+ * installs that predate this feature. Already-standalone installs skip
+ * straight to setting the flag without ever showing it, since there's
+ * nothing left to instruct. Non-blocking for app startup beyond the user
+ * actually dismissing it (same UX as the first-run gate).
+ * @param {HTMLElement} appRoot
+ * @returns {Promise<void>}
+ */
+export async function runInstallPromptIfNeeded(appRoot) {
+  const settings = await getSetting();
+  if (settings?.hasSeenInstallPrompt) return;
+
+  if (isStandalone()) {
+    await putSetting({ ...(settings || {}), hasSeenInstallPrompt: true });
+    return;
+  }
+
+  injectStyles();
+
+  await new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'settings-firstrun-overlay';
+
+    const heading = document.createElement('h1');
+    heading.textContent = 'Add V-Taper Coach to your home screen';
+    overlay.appendChild(heading);
+
+    const intro = document.createElement('p');
+    intro.className = 'settings-firstrun-intro';
+    intro.textContent =
+      "Takes under a minute, and it's the best way to use this app day to day. You can always revisit these steps later from Settings.";
+    overlay.appendChild(intro);
+
+    overlay.appendChild(buildInstallInfo());
+
+    const dismissBtn = document.createElement('button');
+    dismissBtn.type = 'button';
+    dismissBtn.className = 'install-dismiss-btn';
+    dismissBtn.textContent = 'Got it';
+    dismissBtn.addEventListener('click', async () => {
+      dismissBtn.disabled = true;
+      const current = await getSetting();
+      await putSetting({ ...(current || {}), hasSeenInstallPrompt: true });
+      overlay.remove();
+      resolve();
+    });
+    overlay.appendChild(dismissBtn);
+
+    appRoot.appendChild(overlay);
+  });
+}
+
+/**
  * Builds the "Start new block" card (final-review batch C) — only when the
  * 12-week plan is actually complete for the *current* `settings.startDate`
  * (mirrors today.js's own isPlanComplete gating, see js/ui/today.js around
@@ -960,6 +1242,9 @@ export async function renderSettingsTab(container) {
   // --- Sunday prep checklist -----------------------------------------------
   const sundayPrepChecklist = await resolveChecklist(settings, 'sundayPrepChecklist');
   container.appendChild(renderSundayPrepChecklist(sundayPrepChecklist));
+
+  // --- Install this app (permanent access to the one-time overlay's content)
+  container.appendChild(renderInstallCard());
 }
 
 /**
