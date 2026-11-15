@@ -506,7 +506,13 @@ async function resolveChecklist(settings, fieldKey) {
   }
 
   const resetChecklist = { weekOf: today, checkedItems: [] };
-  await putSetting({ ...(settings || {}), [fieldKey]: resetChecklist });
+  // Re-read immediately before writing (rather than merging from the
+  // `settings` snapshot passed in) so that two resolveChecklist() calls in
+  // the same render — grocery then Sunday-prep — don't clobber each other's
+  // resets: without this, the second call's merge-from-stale-snapshot write
+  // would silently overwrite the first call's freshly-reset field.
+  const current = await getSetting();
+  await putSetting({ ...(current || {}), [fieldKey]: resetChecklist });
   return resetChecklist;
 }
 
