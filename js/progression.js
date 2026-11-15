@@ -57,7 +57,11 @@ export function recommendNextSession(exercise, history) {
   // targetReps === repsHigh once maxReps reaches repsHigh).
   if (exercise.incrementType !== 'bodyweight') {
     const targetRIR = parseTargetRIR(exercise.rir);
-    const allSetsClean = workingSets.every(
+    // workingSets.length > 0 guards against .every()'s vacuous "true" on an
+    // empty array (e.g. a session where every logged set was marked
+    // warm-up) — with zero real working sets, there is nothing clean to
+    // recommend a weight increase off of.
+    const allSetsClean = workingSets.length > 0 && workingSets.every(
       (set) => set.reps >= exercise.repsHigh && set.rir <= targetRIR,
     );
     if (allSetsClean) {
