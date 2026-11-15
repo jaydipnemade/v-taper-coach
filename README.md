@@ -41,6 +41,10 @@ git push -u origin main
 
 Either way, once this is done your repository should show all the project's files.
 
+`tests.html` is a developer-only file (an in-browser pure-function test suite) — it's never linked from the app itself, but if you upload the whole folder it will still be reachable at `/tests.html` on your live site. It's safe to leave it there (it only ever reads/writes a separate, test-only local database, never your real data — see `js/db.js`), but it's just as safe to delete it before uploading if you'd rather not publish it at all.
+
+Because this is a public repository, anything you upload is publicly visible, including `plan.pdf` and `docs/superpowers/specs/plan-source-extract.txt` if they're present in your copy of the project — both contain personal body-metric data, so remove them first (or keep the repository itself private, which disables GitHub Pages' free tier) if you don't want that public.
+
 ## 4. Turn on GitHub Pages
 
 1. On your repository's page, click **Settings** (top menu bar of the repo, not your account settings).
@@ -71,13 +75,13 @@ Because everything lives only in your phone's local storage, it's a good idea to
 
 If you come back and change the code (fix a bug, tweak the plan, add a feature), the installed app on your phone won't automatically know new files exist — it aggressively caches everything so it can work offline. To make sure your phone picks up the changes, follow this process on every deploy:
 
-1. Open `sw.js` and bump the version number in this line near the top:
+1. Open `sw.js` and find this line near the top:
 
    ```js
-   const CACHE_NAME = 'vtaper-coach-v1';
+   const CACHE_NAME = 'vtaper-coach-v2';
    ```
 
-   Change it to `'vtaper-coach-v2'` (then `v3`, `v4`, ...) each time you deploy. This is the one thing you must not forget — without it, your phone will keep serving the old cached files indefinitely, even after you've pushed new code.
+   Increase the number at the end by 1 — e.g. if it currently says `v2`, change it to `v3` (next time, `v4`, and so on). This is the one thing you must not forget — without it, your phone will keep serving the old cached files indefinitely, even after you've pushed new code.
 
 2. Commit and push your changes:
 
