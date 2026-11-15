@@ -21,7 +21,7 @@
       getBodyMetric, getAllBodyMetrics, putBodyMetric,
       getDietLog, putDietLog,
       getAllCustomFoods, addCustomFood,
-      getCheckin, putCheckin,
+      getCheckin, putCheckin, clearCheckins,
       exportAllData, importAllData,
     } from './js/db.js';
 
@@ -278,6 +278,39 @@
       }
 
       return problems.length === 0 || problems.join(' | ');
+    });
+
+    // --- js/db.js (final-review batch C: clearCheckins) --------------------
+    // clearCheckins() must clear only the checkins store, leaving every
+    // other store (here: bodyMetrics) untouched — this is the regression
+    // guard for the "Start new block" action in settings.js.
+    await check('clearCheckins() removes a put checkin, leaving other stores untouched', async () => {
+      await putCheckin({ weekNumber: 4, avgWeight: 70, avgWaist: 79, decision: 'clear-test' });
+      const beforeClear = await getCheckin(4);
+      if (JSON.stringify(beforeClear) !== JSON.stringify({ weekNumber: 4, avgWeight: 70, avgWaist: 79, decision: 'clear-test' })) {
+        return `putCheckin didn't persist before clear: ${JSON.stringify(beforeClear)}`;
+      }
+
+      const bodyMetricBefore = await getBodyMetric('2026-02-02'); // written earlier in this suite
+
+      await clearCheckins();
+
+      const afterClear = await getCheckin(4);
+      const bodyMetricAfter = await getBodyMetric('2026-02-02');
+
+      const problems = [];
+      if (afterClear !== null) problems.push(`getCheckin(4) after clear: ${JSON.stringify(afterClear)}`);
+      if (JSON.stringify(bodyMetricAfter) !== JSON.stringify(bodyMetricBefore)) {
+        problems.push(`bodyMetrics changed by clearCheckins: before=${JSON.stringify(bodyMetricBefore)} after=${JSON.stringify(bodyMetricAfter)}`);
+      }
+      return problems.length === 0 || problems.join(' | ');
+    });
+
+    await check('clearCheckins() on an already-empty checkins store is a no-op (does not throw)', async () => {
+      await clearCheckins();
+      await clearCheckins();
+      const result = await getCheckin(4);
+      return result === null || `expected null, got ${JSON.stringify(result)}`;
     });
 
     // --- js/db.js (final-review fix: import validation) -------------------

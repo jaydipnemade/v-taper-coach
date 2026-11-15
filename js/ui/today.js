@@ -1654,7 +1654,9 @@ export async function renderTodayTab(container) {
 
   const heading = document.createElement('h2');
   heading.className = 'today-heading';
-  heading.textContent = `${day.label} — Week ${weekNumber}`;
+  const blockNumber = settings?.blockNumber ?? 1;
+  const weekLabel = blockNumber > 1 ? `Block ${blockNumber} · Week ${weekNumber}` : `Week ${weekNumber}`;
+  heading.textContent = `${day.label} — ${weekLabel}`;
   root.appendChild(heading);
 
   const focus = document.createElement('p');

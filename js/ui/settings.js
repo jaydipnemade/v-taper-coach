@@ -25,14 +25,26 @@
 //       // the morning (default false/absent = evening training, the plan's
 //       // default assumption). Read by diet.js to relabel the breakfast/
 //       // dinner meal names (MEAL_PLAN itself is never mutated).
+//     calorieOverride?: number,  // cumulative kcal/day adjustment from
+//       // confirmed check-in decisions (js/ui/progress.js), applied on top
+//       // of NUTRITION_PHASES[phase].kcal (js/ui/diet.js). Defaults to 0
+//       // when absent (`settings?.calorieOverride ?? 0` at every read site).
+//       // Reset to 0 by the "Start new block" action (final-review batch C)
+//       // so a new block doesn't inherit the old block's adjustment.
+//     blockNumber?: number,  // final-review batch C — which 12-week block
+//       // this is, starting at 1. Absent on every settings record created
+//       // before this field existed; every read site treats that the same
+//       // as 1 (`settings?.blockNumber ?? 1`). Incremented by the "Start new
+//       // block" action each time startDate is moved forward.
 //   }
 //
 // Height/weight are always persisted in metric regardless of the `units`
 // chosen; the imperial unit is purely a display/input convenience converted
 // at the form boundary.
 
-import { getSetting, putSetting, exportAllData, importAllData } from '../db.js';
+import { getSetting, putSetting, exportAllData, importAllData, clearCheckins } from '../db.js';
 import { GROCERY_LIST, SUPPLEMENTS, SUNDAY_PREP_STEPS, MORNING_TRAINING_NOTE } from '../data/plan.js';
+import { getWeekInfo } from '../week.js';
 
 const DEFAULT_HEIGHT_CM = 173;
 const DEFAULT_WEIGHT_KG = 67;
@@ -821,6 +833,84 @@ function renderBackupCard(settings, container) {
 }
 
 /**
+ * Builds the "Start new block" card (final-review batch C) — only when the
+ * 12-week plan is actually complete for the *current* `settings.startDate`
+ * (mirrors today.js's own isPlanComplete gating, see js/ui/today.js around
+ * line 1623). Returns null (nothing to append) when `startDate` is absent or
+ * the plan isn't complete yet, so this never fires mid-block by accident.
+ *
+ * On confirm: clears the `checkins` store (so the new block's week-4/8/12
+ * check-ins don't collide with the old block's stale records — `checkins`
+ * is keyed only by `weekNumber`, see js/db.js's clearCheckins()), resets
+ * `calorieOverride` to 0, bumps `blockNumber`, and moves `startDate` to
+ * today.
+ * @param {object|null} settings
+ * @param {string} today - todayISO(), read once per render pass by the
+ *   caller and threaded through here, rather than called again inside this
+ *   function — avoids a theoretical midnight-boundary mismatch between two
+ *   separate `todayISO()` calls in the same render.
+ * @param {HTMLElement} container - the Settings tab root; re-rendered after
+ *   a successful "Start new block" the same way renderBackupCard re-renders
+ *   after an export.
+ * @returns {HTMLElement|null}
+ */
+function renderStartNewBlockCard(settings, today, container) {
+  if (!settings?.startDate) return null;
+  const weekInfo = getWeekInfo(settings.startDate, today);
+  if (!weekInfo.isPlanComplete) return null;
+
+  const card = document.createElement('section');
+  card.className = 'settings-card';
+  card.setAttribute('data-settings-section', 'start-new-block');
+
+  const heading = document.createElement('h2');
+  heading.textContent = 'Start new block';
+  card.appendChild(heading);
+
+  const intro = document.createElement('p');
+  intro.textContent =
+    'Your 12-week block is complete. Starting a new block clears the saved ' +
+    'week-4/8/12 check-ins (so they don’t collide with the new block’s ' +
+    'check-ins) and resets the calorie check-in adjustment to 0. Export a ' +
+    'backup above first if you want to keep a record of this block.';
+  card.appendChild(intro);
+
+  const startBtn = document.createElement('button');
+  startBtn.type = 'button';
+  startBtn.textContent = 'Start new block';
+  startBtn.addEventListener('click', async () => {
+    const confirmed = window.confirm(
+      'Start a new 12-week block? This clears the 3 saved check-ins (weeks ' +
+      '4, 8, 12) and resets your calorie check-in adjustment to 0. Your ' +
+      'exercise history and body-metric logs (weight/waist/steps/sleep) are ' +
+      'kept.'
+    );
+    if (!confirmed) return;
+
+    startBtn.disabled = true;
+    try {
+      await clearCheckins();
+      // Read-merge-write (same pattern as persistCheckedItems/renderBackupCard
+      // above) so this doesn't clobber fields changed elsewhere since
+      // `settings` was read.
+      const current = await getSetting();
+      await putSetting({
+        ...(current || {}),
+        startDate: today,
+        calorieOverride: 0,
+        blockNumber: (current?.blockNumber ?? 1) + 1,
+      });
+      await renderSettingsTab(container);
+    } finally {
+      startBtn.disabled = false;
+    }
+  });
+  card.appendChild(startBtn);
+
+  return card;
+}
+
+/**
  * Renders the Settings tab into `container`: the profile form (pre-filled
  * from `getSetting()`, saved via `putSetting()` on submit), the Backup card
  * (export/import + last-backup nudge, Task 17), and the weekly grocery
@@ -848,6 +938,13 @@ export async function renderSettingsTab(container) {
 
   // --- Backup section -------------------------------------------------------
   container.appendChild(renderBackupCard(settings, container));
+
+  // --- Start new block (final-review batch C) -------------------------------
+  // `today` is read once here (not inside renderStartNewBlockCard) so this
+  // render pass can't straddle a midnight boundary between two separate
+  // todayISO() calls.
+  const startNewBlockCard = renderStartNewBlockCard(settings, todayISO(), container);
+  if (startNewBlockCard) container.appendChild(startNewBlockCard);
 
   // --- Supplements (reference, read-only) ----------------------------------
   container.appendChild(renderSupplementsCard());

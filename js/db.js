@@ -274,6 +274,22 @@ export async function putCheckin(checkin) {
   await requestToPromise(tx.objectStore('checkins').put(checkin));
 }
 
+/**
+ * Clears every record from the `checkins` store only. Used when starting a
+ * new 12-week block, so the new block's week-4/8/12 check-ins don't collide
+ * with (and get mistaken for) the previous block's check-ins — `checkins` is
+ * keyed solely by `weekNumber`, with no block/date dimension, so without
+ * this the old block's record would still be returned for the same week
+ * number in the new block. Deliberately scoped to this one store, not a
+ * generic "clear any store" helper — `exerciseHistory` and `bodyMetrics`
+ * must never be cleared by this or any future block-reset action.
+ */
+export async function clearCheckins() {
+  const db = await openDB();
+  const tx = db.transaction('checkins', 'readwrite');
+  await requestToPromise(tx.objectStore('checkins').clear());
+}
+
 // ---------------------------------------------------------------------------
 // export / import (backup)
 // ---------------------------------------------------------------------------
