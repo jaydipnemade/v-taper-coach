@@ -252,6 +252,22 @@
       ) || `threw=${threw}, settings before/after differ or sessionLogs before/after differ`;
     });
 
+    // A backup taken before any setting was ever saved has settings: null
+    // (getSetting() returns null, not undefined, for an absent record) —
+    // validateBackupShape must treat that the same as an absent field,
+    // not reject the whole file over it.
+    await check('importAllData accepts a backup with settings: null (never-saved-settings case)', async () => {
+      const validDump = await exportAllData();
+      const dumpWithNullSettings = { ...validDump, settings: null };
+      let threw = false;
+      try {
+        await importAllData(dumpWithNullSettings);
+      } catch (err) {
+        threw = true;
+      }
+      return !threw || `unexpectedly threw on settings: null`;
+    });
+
     // --- js/db.js (final-review fix: exportAllData loops STORE_NAMES) -----
     await check('exportAllData returns exactly the 7 store keys plus exportedAt (no store silently dropped)', async () => {
       const dump = await exportAllData();
@@ -404,6 +420,17 @@
       const history = [perf([warmupSet(5, 3)])];
       const result = progression.recommendNextSession(dbExercise, history);
       return (result.type !== 'increaseWeight') || `got ${JSON.stringify(result)}`;
+    });
+
+    // Follow-up to the above: a zero-working-sets entry must short-circuit
+    // to noHistory entirely, not fall through to beatLastTime with
+    // targetReps computed from Math.max() of an empty array (-Infinity).
+    await check('recommendNextSession: entry with only a warm-up set -> noHistory, never a -Infinity target', () => {
+      const history = [perf([warmupSet(5, 3)])];
+      return eq(
+        progression.recommendNextSession(dbExercise, history),
+        { type: 'noHistory' },
+      );
     });
 
     // RIR range-string parsing: '1-0' takes the last (strictest) number, 0, as the target RIR ceiling.

@@ -47,6 +47,10 @@ export function recommendNextSession(exercise, history) {
 
   const last = getLastPerformance(history);
   const workingSets = (last.sets || []).filter((set) => set.isWarmup === false);
+  // A session with zero working sets (every logged set marked warm-up) has
+  // no performance to compare against — Math.max on an empty array would
+  // yield -Infinity and corrupt both branches below.
+  if (workingSets.length === 0) return { type: 'noHistory' };
   const maxReps = Math.max(...workingSets.map((set) => set.reps));
   const targetReps = Math.min(exercise.repsHigh, maxReps + 1);
 

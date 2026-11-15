@@ -319,7 +319,10 @@ function validateBackupShape(data) {
   }
   for (const storeName of STORE_NAMES) {
     const value = data[storeName];
-    if (value === undefined) continue;
+    // A backup taken before any setting was ever saved has settings: null
+    // (getSetting() returns null, not undefined, when the record is
+    // absent) — treat that the same as an absent field, not invalid.
+    if (value === undefined || value === null) continue;
     if (storeName === 'settings') {
       if (!isPlainObject(value)) {
         return "This backup's settings data is invalid.";
