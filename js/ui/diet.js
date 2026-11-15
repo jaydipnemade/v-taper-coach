@@ -293,6 +293,7 @@ function injectStyles() {
       align-items: center;
       gap: 8px;
       font-size: 0.9rem;
+      min-height: var(--tap-min);
     }
     .banana-row {
       display: flex;
@@ -301,6 +302,7 @@ function injectStyles() {
       font-size: 0.9rem;
       margin-top: 10px;
       padding-top: 10px;
+      min-height: var(--tap-min);
       border-top: 1px solid var(--border);
     }
     .custom-food-list {

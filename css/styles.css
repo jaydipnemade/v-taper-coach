@@ -174,17 +174,69 @@ button:active {
   transform: scale(0.96);
 }
 
-/* iOS tap-target minimums for interactive controls. */
-button,
-input[type="checkbox"],
-input[type="radio"] {
+/* iOS tap-target minimum for buttons. Checkboxes/radios get their own small
+   size below — the tap target for those lives on the surrounding label
+   instead (see each checklist's label rule), not on the control itself. */
+button {
   min-height: var(--tap-min);
   min-width: var(--tap-min);
 }
 
+/* Custom checkbox/radio: the native control rendered as a plain, oversized
+   white box/circle against this dark theme (forcing it up to the 44px tap
+   minimum only made the mismatch bigger). Draw a small themed control
+   instead and size the tap target via the label that wraps it. */
 input[type="checkbox"],
 input[type="radio"] {
-  accent-color: var(--accent);
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  margin: 0;
+  flex-shrink: 0;
+  border: 1.5px solid var(--border);
+  background: var(--surface-alt);
+  cursor: pointer;
+  position: relative;
+}
+
+input[type="checkbox"] {
+  border-radius: 5px;
+}
+
+input[type="radio"] {
+  border-radius: 50%;
+}
+
+input[type="checkbox"]:checked,
+input[type="radio"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  width: 5px;
+  height: 10px;
+  border: solid var(--accent-text);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+input[type="radio"]:checked::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-text);
 }
 
 a {

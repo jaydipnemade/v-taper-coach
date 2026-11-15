@@ -1161,8 +1161,9 @@ function injectStyles() {
     }
     .warmup-checklist label {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       gap: 8px;
+      min-height: var(--tap-min);
     }
     .exercise-list {
       display: flex;
