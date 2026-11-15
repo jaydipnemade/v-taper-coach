@@ -68,10 +68,17 @@ function swapOptionLabel(swap) {
   return `${amount} ${swap.food}`.trim();
 }
 
-/** Finds which PROTEIN_KEYWORDS word is present (case-insensitively) in a meal's item text, if any. */
+/**
+ * Finds which PROTEIN_KEYWORDS word is present (case-insensitively) in a
+ * meal's item text, if any. Matched on a LEFT word boundary (`\b` right
+ * before the keyword), not a plain substring search — a plain `includes`
+ * would, e.g., find 'egg' inside "veggies" (preceded by 'v', not a
+ * boundary) before ever checking 'paneer', misidentifying the meal's
+ * protein and corrupting unrelated text on swap. See applyProteinSwap in
+ * js/nutrition.js for the matching fix on the replace side.
+ */
 function findMealProteinKeyword(itemsText) {
-  const lower = itemsText.toLowerCase();
-  return PROTEIN_KEYWORDS.find((kw) => lower.includes(kw)) ?? null;
+  return PROTEIN_KEYWORDS.find((kw) => new RegExp(`\\b${kw}`, 'i').test(itemsText)) ?? null;
 }
 
 /**

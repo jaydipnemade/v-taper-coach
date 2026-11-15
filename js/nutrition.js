@@ -97,13 +97,24 @@ function escapeRegExp(str) {
  * is capitalized to match, rather than silently lowercasing the start of
  * the sentence.
  *
+ * The match is anchored to a LEFT word boundary (`\b` immediately before
+ * `fromFood`) so it can never match a keyword embedded mid-word in some
+ * unrelated word — e.g. 'egg' inside "veggies" (which has no boundary
+ * between the preceding 'v' and 'e', both word characters) — while still
+ * matching a real plural like "eggs" (which DOES have a boundary right
+ * before the 'e', and 'egg' + trailing 's' is left untouched by the
+ * replacement, matching this function's existing literal-substring
+ * behavior for suffixes). A full `\b...\b` (boundary on both sides) would
+ * reject "eggs" entirely, since 'g' and 's' are both word characters with
+ * no boundary between them — that would be a regression, not a fix.
+ *
  * @param {string} mealItemText
  * @param {string} fromFood
  * @param {string} toFood
  * @returns {string}
  */
 export function applyProteinSwap(mealItemText, fromFood, toFood) {
-  const pattern = new RegExp(escapeRegExp(fromFood), 'gi');
+  const pattern = new RegExp(`\\b${escapeRegExp(fromFood)}`, 'gi');
   return mealItemText.replace(pattern, (match) => {
     const firstChar = match.charAt(0);
     const wasCapitalized = firstChar !== firstChar.toLowerCase() && firstChar === firstChar.toUpperCase();
