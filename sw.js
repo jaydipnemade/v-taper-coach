@@ -9,6 +9,7 @@
 const CACHE_NAME = 'vtaper-coach-v2';
 
 const PRECACHE_URLS = [
+  './',
   'index.html',
   'manifest.webmanifest',
   'css/styles.css',
@@ -35,7 +36,15 @@ const PRECACHE_URLS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
+    caches.open(CACHE_NAME).then((cache) =>
+      // Request with { cache: 'reload' } (not plain cache.addAll(urls), which
+      // lets the browser's HTTP cache — e.g. GitHub Pages' CDN — serve a
+      // stale response) so a precache always fetches the current bytes
+      // from the network on install.
+      Promise.all(
+        PRECACHE_URLS.map((url) => cache.add(new Request(url, { cache: 'reload' })))
+      )
+    )
   );
   // Don't wait for old tabs to close before this version takes over install.
   self.skipWaiting();
