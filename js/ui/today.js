@@ -14,6 +14,7 @@ import {
   getSetting,
   getExerciseHistory,
   appendExercisePerformance,
+  upsertExercisePerformance,
   getSessionLog,
   putSessionLog,
 } from '../db.js';
@@ -89,14 +90,24 @@ function resolveDayExercises(dayKey, phaseInfo) {
   for (const exercise of day.exercises) {
     if (skipIds.has(exercise.id)) continue;
 
-    const intraPartnerId = (exercise.swaps ?? []).find((id) => dayIds.has(id));
+    // An exercise can have MORE THAN ONE same-day swap-only alternate now
+    // (e.g. t-bar-row's `swaps` lists both seal-row — the Build-2
+    // auto-swap — and machine-row — a lower-back-twinge-only manual swap),
+    // so this collects every same-day match, not just the first: all of
+    // them get excluded from standalone rendering (added to skipIds)
+    // below, and whichever one (if any) is this week's ACTIVE
+    // BLOCK_STRUCTURE pair supplies the slot's data; otherwise the
+    // exercise's own data is shown, same as before.
+    const intraPartnerIds = (exercise.swaps ?? []).filter((id) => dayIds.has(id));
 
-    if (intraPartnerId) {
+    if (intraPartnerIds.length > 0) {
       // Both sides of this pair live on today's day — only ever render one
       // row for the pair, at this (first-encountered, lower-order) slot.
-      skipIds.add(intraPartnerId);
-      const isActive = activePartnerOf.get(exercise.id) === intraPartnerId;
-      const data = isActive ? EXERCISE_BY_ID[intraPartnerId] : exercise;
+      intraPartnerIds.forEach((id) => skipIds.add(id));
+      const activeIntraPartnerId = intraPartnerIds.find(
+        (id) => activePartnerOf.get(exercise.id) === id,
+      );
+      const data = activeIntraPartnerId ? EXERCISE_BY_ID[activeIntraPartnerId] : exercise;
       resolved.push({ ...data, slotOrder: exercise.order });
       continue;
     }
@@ -112,6 +123,35 @@ function resolveDayExercises(dayKey, phaseInfo) {
   }
 
   return resolved;
+}
+
+/**
+ * The session-draft / exerciseHistory key to use for a given slot's
+ * CURRENT exercise — normally just `exercise.id`, except when a manual
+ * swap (via the lower-back-twinge swap control) resolves to an id that's
+ * ALREADY the (native, unswapped) id of some OTHER slot in today's list —
+ * e.g. swapping Tuesday's hack-squat to leg-press, which collides with
+ * Tuesday's own native leg-press row. Without this, both rows would read
+ * and write the exact same sessionCtx.draft.exercises[...] object and the
+ * exact same exerciseHistory record, corrupting whichever one logs/renders
+ * last.
+ *
+ * `dayIdsBySlot` is the day's NATIVE (pre-swap) slotOrder -> id map, built
+ * once in renderTrainingDay from resolveDayExercises' own output — i.e.
+ * collision is detected against what today's OTHER slots actually are,
+ * never against this slot's own (possibly-swapped) history, so a slot's
+ * key is stable regardless of what it itself gets swapped to.
+ * @param {{id: string, slotOrder: number}} exercise
+ * @param {Map<number, string>} dayIdsBySlot
+ * @returns {string}
+ */
+function computeHistoryKey(exercise, dayIdsBySlot) {
+  for (const [slotOrder, id] of dayIdsBySlot) {
+    if (slotOrder !== exercise.slotOrder && id === exercise.id) {
+      return `${exercise.id}__slot${exercise.slotOrder}`;
+    }
+  }
+  return exercise.id;
 }
 
 // ---------------------------------------------------------------------------
@@ -277,15 +317,18 @@ function formatRecommendation(rec) {
  * @param {object} exercise resolved PlanExercise (already swap-resolved by resolveDayExercises)
  * @param {object|null} phaseInfo
  * @param {{draft: object}} sessionCtx
+ * @param {string} historyKey session-draft/exerciseHistory key for this
+ *   slot — `exercise.id`, unless computeHistoryKey() detected a same-day
+ *   collision (see its own doc comment).
  */
-async function renderLoggerSection(details, exercise, phaseInfo, sessionCtx) {
-  const history = await getExerciseHistory(exercise.id);
+async function renderLoggerSection(details, exercise, phaseInfo, sessionCtx, historyKey) {
+  const history = await getExerciseHistory(historyKey);
   const last = getLastPerformance(history);
   const rec = recommendNextSession(exercise, history);
   const targetSets = adjustedSets(exercise, phaseInfo);
 
-  const exState = sessionCtx.draft.exercises[exercise.id]
-    ?? (sessionCtx.draft.exercises[exercise.id] = { sets: [], finalized: false });
+  const exState = sessionCtx.draft.exercises[historyKey]
+    ?? (sessionCtx.draft.exercises[historyKey] = { sets: [], finalized: false });
 
   details.innerHTML = '';
 
@@ -299,7 +342,7 @@ async function renderLoggerSection(details, exercise, phaseInfo, sessionCtx) {
 
   for (let index = 0; index < targetSets; index += 1) {
     wrapper.appendChild(
-      renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, details),
+      renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, details, historyKey),
     );
   }
 
@@ -313,8 +356,11 @@ async function renderLoggerSection(details, exercise, phaseInfo, sessionCtx) {
  * ONLY place that decides whether this was the exercise's last working set
  * (the highest-index row — among ALL target rows, not just logged ones —
  * currently toggled "working" in the UI right now).
+ * @param {string} historyKey session-draft/exerciseHistory key (see
+ *   computeHistoryKey) — used instead of exercise.id so a manual swap that
+ *   collides with another slot's native id can't corrupt either row.
  */
-function renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, details) {
+function renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, details, historyKey) {
   const row = document.createElement('div');
   row.className = 'set-row';
 
@@ -404,6 +450,11 @@ function renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, det
       rir: Number.isFinite(rir) ? rir : 0,
       isWarmup: toggleInput.checked,
     };
+    // Captured BEFORE this click's mutation, so the branches below can tell
+    // "this is the click that finalizes the exercise" apart from "this
+    // exercise was already finalized (earlier this session, or in a
+    // previous session restored on reload) and is now being edited".
+    const wasAlreadyFinalized = exState.finalized;
     exState.sets[index] = setEntry;
     await putSessionLog(sessionCtx.draft);
 
@@ -417,12 +468,35 @@ function renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, det
       if (!input.checked) lastWorkingIndex = i;
     });
 
-    if (!exState.finalized && !setEntry.isWarmup && index === lastWorkingIndex) {
-      await appendExercisePerformance(exercise.id, {
-        date: sessionCtx.draft.date,
-        weekNumber: sessionCtx.draft.weekNumber,
-        sets: exState.sets.filter(Boolean),
-      });
+    const historyEntry = {
+      date: sessionCtx.draft.date,
+      weekNumber: sessionCtx.draft.weekNumber,
+      sets: exState.sets.filter(Boolean),
+    };
+
+    if (!wasAlreadyFinalized && !setEntry.isWarmup && index === lastWorkingIndex) {
+      // First time this exercise is finalized this session: append the one
+      // new exerciseHistory entry for today and flip the flag.
+      await appendExercisePerformance(historyKey, historyEntry);
+      exState.finalized = true;
+      await putSessionLog(sessionCtx.draft);
+    } else if (wasAlreadyFinalized) {
+      // Editing ANY set (not just the last working one) after the exercise
+      // was already finalized — e.g. correcting a logged 10 reps down to 8
+      // — must update the SAME-date exerciseHistory entry in place, never
+      // leave the original (now-stale) append untouched and never add a
+      // second entry for the same date. Otherwise progression.js's "only
+      // recommend a weight increase on a fully clean top-of-range session"
+      // guarantee could be defeated by stale, pre-edit history data.
+      await upsertExercisePerformance(historyKey, historyEntry);
+    }
+
+    // Rest timer: starts after EVERY logged/updated working set (not just
+    // the exercise's last one), using this exercise's own rest duration —
+    // deliberately independent of the history/finalized bookkeeping above.
+    // The spec calls for a rest timer between SETS, not just between
+    // exercises.
+    if (!setEntry.isWarmup) {
       const restMs = parseRestMs(exercise.rest);
       if (restMs > 0) {
         // rest === '—' (the single-block cardio exercise, e.g.
@@ -439,11 +513,9 @@ function renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, det
         }
         pollRestTimer();
       }
-      exState.finalized = true;
-      await putSessionLog(sessionCtx.draft);
     }
 
-    await renderLoggerSection(details, exercise, phaseInfo, sessionCtx);
+    await renderLoggerSection(details, exercise, phaseInfo, sessionCtx, historyKey);
   });
   row.appendChild(logBtn);
 
@@ -1249,7 +1321,7 @@ function injectStyles() {
 // Rendering.
 // ---------------------------------------------------------------------------
 
-function renderExerciseRow(initialExercise, phaseInfo, sessionCtx) {
+function renderExerciseRow(initialExercise, phaseInfo, sessionCtx, dayIdsBySlot) {
   const row = document.createElement('div');
   row.className = 'exercise-row';
 
@@ -1304,7 +1376,8 @@ function renderExerciseRow(initialExercise, phaseInfo, sessionCtx) {
   function loadLoggerIfNeeded() {
     if (loggerLoaded) return;
     loggerLoaded = true;
-    renderLoggerSection(loggerContainer, currentExercise, phaseInfo, sessionCtx);
+    const historyKey = computeHistoryKey(currentExercise, dayIdsBySlot);
+    renderLoggerSection(loggerContainer, currentExercise, phaseInfo, sessionCtx, historyKey);
   }
 
   function handleSwap(newExerciseId) {
@@ -1415,8 +1488,13 @@ function renderTrainingDay(root, day, dayKey, phaseInfo, sessionCtx) {
   const list = document.createElement('div');
   list.className = 'exercise-list';
   const exercises = resolveDayExercises(dayKey, phaseInfo);
+  // Today's NATIVE (pre-manual-swap) slotOrder -> id map, built once here
+  // and handed to every row so a manual swap that resolves to an id
+  // already used by some OTHER slot today (see computeHistoryKey) can be
+  // detected and kept from corrupting either slot's data.
+  const dayIdsBySlot = new Map(exercises.map((e) => [e.slotOrder, e.id]));
   exercises.forEach((exercise) => {
-    list.appendChild(renderExerciseRow(exercise, phaseInfo, sessionCtx));
+    list.appendChild(renderExerciseRow(exercise, phaseInfo, sessionCtx, dayIdsBySlot));
   });
   root.appendChild(list);
 }
