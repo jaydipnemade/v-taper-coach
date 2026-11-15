@@ -3,7 +3,33 @@
 // logic. Every other module reads/writes persisted data through these
 // functions.
 
-const DB_NAME = 'vtaper-coach-db';
+const DEFAULT_DB_NAME = 'vtaper-coach-db';
+const TEST_DB_NAME = 'vtaper-coach-test-db';
+
+/**
+ * Picks the IndexedDB database name: the real app database, UNLESS this
+ * page is tests.html (detected by pathname) or the page was explicitly
+ * opted in via `?testdb=1` — in either case a completely separate database
+ * is used instead. This is what keeps the dev-only pure-function/db test
+ * suite (tests.html) from ever reading, writing, or clearing a real user's
+ * data, even if tests.html ends up deployed alongside the real app at the
+ * same origin (see README.md's note on this file being dev-only).
+ * @returns {string}
+ */
+function resolveDbName() {
+  try {
+    if (typeof location !== 'undefined') {
+      const isTestsPage = /\/tests\.html$/.test(location.pathname);
+      const hasTestFlag = new URLSearchParams(location.search).get('testdb') === '1';
+      if (isTestsPage || hasTestFlag) return TEST_DB_NAME;
+    }
+  } catch (err) {
+    // No `location` (non-browser context) — fall through to the real name.
+  }
+  return DEFAULT_DB_NAME;
+}
+
+const DB_NAME = resolveDbName();
 const DB_VERSION = 1;
 
 /**
@@ -143,6 +169,40 @@ export async function appendExercisePerformance(exerciseId, entry) {
   });
 }
 
+/**
+ * Replaces the SAME-date entry in an exercise's history with `entry` (or
+ * appends it if no entry for that date exists yet, defensively — the
+ * expected call path always upserts a date that was already appended
+ * once). Used when a trainee edits a logged set after the exercise was
+ * already finalized this session, so the stored history is updated IN
+ * PLACE and never ends up with two entries for the same date.
+ * @param {string} exerciseId
+ * @param {object} entry same shape as appendExercisePerformance's `entry`
+ */
+export async function upsertExercisePerformance(exerciseId, entry) {
+  const db = await openDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction('exerciseHistory', 'readwrite');
+    const store = tx.objectStore('exerciseHistory');
+    const getReq = store.get(exerciseId);
+    getReq.onsuccess = () => {
+      const existing = getReq.result;
+      const entries = existing ? [...existing.entries] : [];
+      const matchIndex = entries.findIndex((e) => e.date === entry.date);
+      if (matchIndex === -1) {
+        entries.push(entry);
+      } else {
+        entries[matchIndex] = entry;
+      }
+      const putReq = store.put({ exerciseId, entries });
+      putReq.onerror = () => reject(putReq.error);
+    };
+    getReq.onerror = () => reject(getReq.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // bodyMetrics (keyPath: date)
 // ---------------------------------------------------------------------------
@@ -218,58 +278,93 @@ export async function putCheckin(checkin) {
 // export / import (backup)
 // ---------------------------------------------------------------------------
 
+/**
+ * Dumps every store, looping the shared STORE_NAMES constant (the same one
+ * importAllData loops) rather than hardcoding the 7 store names here too —
+ * so a future 8th store can't be added to STORE_CONFIG/STORE_NAMES and
+ * silently dropped from export while still being cleared by import.
+ */
 export async function exportAllData() {
   const db = await openDB();
-  const [
-    settings,
-    sessionLogs,
-    exerciseHistory,
-    bodyMetrics,
-    dietLog,
-    customFoods,
-    checkins,
-  ] = await Promise.all([
-    getSetting(),
-    getAllFromStore(db, 'sessionLogs'),
-    getAllFromStore(db, 'exerciseHistory'),
-    getAllFromStore(db, 'bodyMetrics'),
-    getAllFromStore(db, 'dietLog'),
-    getAllFromStore(db, 'customFoods'),
-    getAllFromStore(db, 'checkins'),
-  ]);
+  const result = { exportedAt: new Date().toISOString() };
+  await Promise.all(
+    STORE_NAMES.map(async (storeName) => {
+      result[storeName] = storeName === 'settings'
+        ? await getSetting()
+        : await getAllFromStore(db, storeName);
+    }),
+  );
+  return result;
+}
 
-  return {
-    settings,
-    sessionLogs,
-    exerciseHistory,
-    bodyMetrics,
-    dietLog,
-    customFoods,
-    checkins,
-    exportedAt: new Date().toISOString(),
-  };
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Validates a parsed backup object's shape BEFORE importAllData touches any
+ * store — a wrong-shaped-but-valid JSON file (e.g. `{}`) must never clear
+ * real data. Checks: a plain object, a string `exportedAt`, and each of the
+ * 7 store keys either absent or an array (except `settings`, which must be
+ * a plain object or absent).
+ * @param {any} data
+ * @returns {string|null} an error message, or null if the shape is valid.
+ */
+function validateBackupShape(data) {
+  if (!isPlainObject(data)) {
+    return 'This file is not a valid backup (expected a JSON object).';
+  }
+  if (typeof data.exportedAt !== 'string') {
+    return "This file doesn't look like a V-Taper Coach backup (missing exportedAt).";
+  }
+  for (const storeName of STORE_NAMES) {
+    const value = data[storeName];
+    if (value === undefined) continue;
+    if (storeName === 'settings') {
+      if (!isPlainObject(value)) {
+        return "This backup's settings data is invalid.";
+      }
+    } else if (!Array.isArray(value)) {
+      return `This backup's ${storeName} data is invalid (expected a list).`;
+    }
+  }
+  return null;
 }
 
 export async function importAllData(data) {
+  const validationError = validateBackupShape(data);
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
   const db = await openDB();
   await new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAMES, 'readwrite');
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+    // A request that fails (e.g. store.put() throwing synchronously below,
+    // for a record missing its keyPath field) aborts the transaction —
+    // onabort is the one place that matters: it means NOTHING in this
+    // transaction was committed, so a partial clear-without-full-restore
+    // can never happen.
+    tx.onabort = () => reject(tx.error ?? new Error('Import failed — no data was changed.'));
 
-    for (const storeName of STORE_NAMES) {
-      const store = tx.objectStore(storeName);
-      store.clear();
+    try {
+      for (const storeName of STORE_NAMES) {
+        const store = tx.objectStore(storeName);
+        store.clear();
 
-      if (storeName === 'settings') {
-        if (data.settings) store.put({ ...data.settings, id: 'app' });
-        continue;
+        if (storeName === 'settings') {
+          if (data.settings) store.put({ ...data.settings, id: 'app' });
+          continue;
+        }
+
+        const records = data[storeName];
+        if (Array.isArray(records)) {
+          for (const record of records) store.put(record);
+        }
       }
-
-      const records = data[storeName];
-      if (Array.isArray(records)) {
-        for (const record of records) store.put(record);
-      }
+    } catch (err) {
+      tx.abort();
     }
   });
 }

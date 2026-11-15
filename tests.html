@@ -14,8 +14,8 @@
     } from './js/data/plan.js';
     import {
       getSetting, putSetting,
-      getSessionLog, putSessionLog,
-      getExerciseHistory, appendExercisePerformance,
+      getSessionLog, putSessionLog, getAllSessionLogs,
+      getExerciseHistory, appendExercisePerformance, upsertExercisePerformance,
       getBodyMetric, getAllBodyMetrics, putBodyMetric,
       getDietLog, putDietLog,
       getAllCustomFoods, addCustomFood,
@@ -195,6 +195,76 @@
       return problems.length === 0 || problems.join(' | ');
     });
 
+    // --- js/db.js (final-review fix: import validation) -------------------
+    // importAllData must validate the backup's shape BEFORE clearing any
+    // store, so a wrong-shaped-but-valid JSON file (e.g. `{}`) can never
+    // silently wipe real data, and a store.put() throw (e.g. a record
+    // missing its keyPath field) must abort the whole transaction rather
+    // than commit a partial clear-without-full-restore.
+
+    await check('importAllData rejects {} without touching existing data', async () => {
+      const before = await getSetting();
+      let threw = false;
+      try {
+        await importAllData({});
+      } catch (err) {
+        threw = true;
+      }
+      const after = await getSetting();
+      return (threw && JSON.stringify(after) === JSON.stringify(before))
+        || `threw=${threw}, before=${JSON.stringify(before)}, after=${JSON.stringify(after)}`;
+    });
+
+    await check('importAllData rejects a non-object (e.g. an array) without touching existing data', async () => {
+      const before = await getSetting();
+      let threw = false;
+      try {
+        await importAllData([1, 2, 3]);
+      } catch (err) {
+        threw = true;
+      }
+      const after = await getSetting();
+      return (threw && JSON.stringify(after) === JSON.stringify(before))
+        || `threw=${threw}, before=${JSON.stringify(before)}, after=${JSON.stringify(after)}`;
+    });
+
+    await check('importAllData rejects a record missing its keyPath field, aborting the WHOLE import (no partial clear)', async () => {
+      const beforeSettings = await getSetting();
+      const beforeSessionLogs = await getAllSessionLogs();
+      const validDump = await exportAllData();
+      // sessionLogs' keyPath is 'id' — a record with no `id` field makes
+      // store.put() throw synchronously inside importAllData's transaction.
+      const malformedDump = { ...validDump, sessionLogs: [...validDump.sessionLogs, { dayKey: 'mon', noId: true }] };
+
+      let threw = false;
+      try {
+        await importAllData(malformedDump);
+      } catch (err) {
+        threw = true;
+      }
+
+      const afterSettings = await getSetting();
+      const afterSessionLogs = await getAllSessionLogs();
+      return (
+        threw
+        && JSON.stringify(afterSettings) === JSON.stringify(beforeSettings)
+        && JSON.stringify(afterSessionLogs) === JSON.stringify(beforeSessionLogs)
+      ) || `threw=${threw}, settings before/after differ or sessionLogs before/after differ`;
+    });
+
+    // --- js/db.js (final-review fix: exportAllData loops STORE_NAMES) -----
+    await check('exportAllData returns exactly the 7 store keys plus exportedAt (no store silently dropped)', async () => {
+      const dump = await exportAllData();
+      const expectedKeys = [
+        'settings', 'sessionLogs', 'exerciseHistory', 'bodyMetrics', 'dietLog', 'customFoods', 'checkins', 'exportedAt',
+      ];
+      const actualKeys = Object.keys(dump).sort();
+      return eqKeys(actualKeys, expectedKeys.slice().sort()) || `got keys: ${actualKeys.join(', ')}`;
+    });
+    function eqKeys(a, b) {
+      return JSON.stringify(a) === JSON.stringify(b);
+    }
+
     // --- js/week.js (Task 3) ----------------------------------------------
     // Loaded dynamically so a missing or broken module fails only these
     // checks instead of blanking the whole page (keeps Task 1-2 results visible).
@@ -324,6 +394,16 @@
       const history = [perf([workingSet(15, 1), workingSet(15, 1), workingSet(15, 1)])];
       const result = progression.recommendNextSession(bodyweightExercise, history);
       return eq(result, { type: 'beatLastTime', targetReps: bodyweightExercise.repsHigh });
+    });
+
+    // Final-review fix: an entry whose working sets are ALL warm-up (empty
+    // workingSets array after the isWarmup filter) must never fall into
+    // .every()'s vacuous "true" and recommend increaseWeight — there is
+    // nothing clean to progress off of.
+    await check('recommendNextSession: entry with only a warm-up set (no real working sets) never -> increaseWeight', () => {
+      const history = [perf([warmupSet(5, 3)])];
+      const result = progression.recommendNextSession(dbExercise, history);
+      return (result.type !== 'increaseWeight') || `got ${JSON.stringify(result)}`;
     });
 
     // RIR range-string parsing: '1-0' takes the last (strictest) number, 0, as the target RIR ceiling.

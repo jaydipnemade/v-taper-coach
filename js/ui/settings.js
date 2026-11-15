@@ -636,7 +636,12 @@ function renderBackupCard(settings, container) {
     );
     if (!confirmed) return;
 
-    await importAllData(parsed);
+    try {
+      await importAllData(parsed);
+    } catch (err) {
+      window.alert(`Could not import that backup: ${err.message}\n\nYour existing data was not changed.`);
+      return;
+    }
     location.reload();
   });
   importLabel.appendChild(importInput);
