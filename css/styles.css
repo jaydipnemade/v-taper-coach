@@ -81,7 +81,12 @@ body {
      flat black — cards keep their own separate glow border on top of this. */
   background: radial-gradient(ellipse 900px 600px at 50% -150px, var(--bg-glow), transparent 70%), var(--bg);
   background-attachment: fixed;
-  /* Respect iOS safe areas at the page edges too (notch/home-indicator). */
+  /* Respect iOS safe areas at the page edges too (notch/home-indicator).
+     Top matters most: `apple-mobile-web-app-status-bar-style:
+     black-translucent` (index.html) draws the status bar/notch over the
+     page instead of reserving its own opaque bar, so without this the
+     page's own top content renders underneath it and reads as "cut off". */
+  padding-top: env(safe-area-inset-top);
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
