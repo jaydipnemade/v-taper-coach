@@ -86,7 +86,7 @@ body {
      black-translucent` (index.html) draws the status bar/notch over the
      page instead of reserving its own opaque bar, so without this the
      page's own top content renders underneath it and reads as "cut off". */
-  padding-top: env(safe-area-inset-top);
+  padding-top: calc(env(safe-area-inset-top) + 8px);
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
