@@ -892,11 +892,14 @@ function renderStartNewBlockCard(settings, today, container) {
       await clearCheckins();
       // Read-merge-write (same pattern as persistCheckedItems/renderBackupCard
       // above) so this doesn't clobber fields changed elsewhere since
-      // `settings` was read.
+      // `settings` was read. `startDate` uses a fresh todayISO() call here
+      // (not the `today` parameter threaded in for the render-time gating
+      // check above) so a tab left open across midnight still starts the new
+      // block on the actual day the button was clicked.
       const current = await getSetting();
       await putSetting({
         ...(current || {}),
-        startDate: today,
+        startDate: todayISO(),
         calorieOverride: 0,
         blockNumber: (current?.blockNumber ?? 1) + 1,
       });

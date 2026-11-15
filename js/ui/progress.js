@@ -345,14 +345,26 @@ function buildWeeklyBodyStats(allMetrics, startDateISO) {
 /**
  * Per-week (1-12) heaviest-working-set weight for each tracked lift (see
  * judgment call 3). Returns { [exerciseId]: Array<number|null> } (length 12).
+ *
+ * Buckets by `getWeekNumber(startDateISO, entry.date)` — i.e. the CURRENT
+ * block's week for that calendar date — rather than the entry's own stored
+ * `weekNumber` field. The stored field is whatever block was active when the
+ * set was logged, so using it directly would let a prior block's lift data
+ * bleed into a new block's log table and check-in lift-trend hints once
+ * `startDate` moves forward (final-review batch C follow-up).
+ * @param {string|null} startDateISO
  */
-async function buildWeeklyLiftStats() {
+async function buildWeeklyLiftStats(startDateISO) {
   const histories = await Promise.all(TRACKED_LIFTS.map((l) => getExerciseHistory(l.id)));
   const result = {};
   TRACKED_LIFTS.forEach((lift, idx) => {
     const perWeek = Array(PLAN_WEEKS).fill(null);
+    if (!startDateISO) {
+      result[lift.id] = perWeek;
+      return;
+    }
     for (const entry of histories[idx]) {
-      const wn = entry.weekNumber;
+      const wn = getWeekNumber(startDateISO, entry.date);
       if (!Number.isInteger(wn) || wn < 1 || wn > PLAN_WEEKS) continue;
       const workingWeights = (entry.sets ?? [])
         .filter((s) => !s.isWarmup)
@@ -739,7 +751,7 @@ export async function renderProgressTab(container) {
 
   const [bodyStats, liftStats, existingCheckin] = await Promise.all([
     Promise.resolve(buildWeeklyBodyStats(allMetrics, startDateISO)),
-    buildWeeklyLiftStats(),
+    buildWeeklyLiftStats(startDateISO),
     currentWeekNumber != null ? getCheckin(currentWeekNumber) : Promise.resolve(null),
   ]);
   const dateMap = buildDateMap(allMetrics);

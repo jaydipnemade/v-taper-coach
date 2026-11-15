@@ -282,8 +282,10 @@
 
     // --- js/db.js (final-review batch C: clearCheckins) --------------------
     // clearCheckins() must clear only the checkins store, leaving every
-    // other store (here: bodyMetrics) untouched — this is the regression
-    // guard for the "Start new block" action in settings.js.
+    // other store (here: bodyMetrics and exerciseHistory) untouched — this
+    // is the regression guard for the "Start new block" action in
+    // settings.js, which relies on exerciseHistory surviving so double
+    // progression carries over into the new block.
     await check('clearCheckins() removes a put checkin, leaving other stores untouched', async () => {
       await putCheckin({ weekNumber: 4, avgWeight: 70, avgWaist: 79, decision: 'clear-test' });
       const beforeClear = await getCheckin(4);
@@ -292,16 +294,23 @@
       }
 
       const bodyMetricBefore = await getBodyMetric('2026-02-02'); // written earlier in this suite
+      if (!bodyMetricBefore) return 'fixture missing: expected a 2026-02-02 bodyMetric from earlier in this suite';
+      const historyBefore = await getExerciseHistory('incline-db-press'); // written earlier in this suite
+      if (!historyBefore || historyBefore.length === 0) return 'fixture missing: expected incline-db-press history from earlier in this suite';
 
       await clearCheckins();
 
       const afterClear = await getCheckin(4);
       const bodyMetricAfter = await getBodyMetric('2026-02-02');
+      const historyAfter = await getExerciseHistory('incline-db-press');
 
       const problems = [];
       if (afterClear !== null) problems.push(`getCheckin(4) after clear: ${JSON.stringify(afterClear)}`);
       if (JSON.stringify(bodyMetricAfter) !== JSON.stringify(bodyMetricBefore)) {
         problems.push(`bodyMetrics changed by clearCheckins: before=${JSON.stringify(bodyMetricBefore)} after=${JSON.stringify(bodyMetricAfter)}`);
+      }
+      if (JSON.stringify(historyAfter) !== JSON.stringify(historyBefore)) {
+        problems.push(`exerciseHistory changed by clearCheckins: before=${JSON.stringify(historyBefore)} after=${JSON.stringify(historyAfter)}`);
       }
       return problems.length === 0 || problems.join(' | ');
     });
