@@ -52,7 +52,7 @@ export const DAYS = {
     warmup: WARMUP_STEPS,
     exercises: [
       { id: 'lat-pulldown', order: 1, name: 'Lat pulldown (shoulder-width or slightly wider)', sets: '4', repsLow: '8', repsHigh: '12', rest: '2 min', rir: '2', notes: '', incrementType: 'cable', cue: 'Thighs locked under the pad, chest up, slight lean back (about 15°). Think "elbows down into your back pockets", not "pull with the hands". Bar to upper chest. Pause 1 s, then control 2-3 s up to a full stretch.' },
-      { id: 't-bar-row', order: 2, name: 'Chest-supported T-bar or seal row', sets: '4', repsLow: '8', repsHigh: '10', rest: '2 min', rir: '2', notes: '', incrementType: 'machine', cue: "Chest stays glued to the pad the whole set. That's what takes the load off your lower back. Pull the elbows toward the hips for lats, or out wide for the upper back. Squeeze 1 s.", swaps: ['seal-row'] },
+      { id: 't-bar-row', order: 2, name: 'Chest-supported T-bar or seal row', sets: '4', repsLow: '8', repsHigh: '10', rest: '2 min', rir: '2', notes: '', incrementType: 'machine', cue: "Chest stays glued to the pad the whole set. That's what takes the load off your lower back. Pull the elbows toward the hips for lats, or out wide for the upper back. Squeeze 1 s.", swaps: ['seal-row', 'machine-row'] },
       { id: 'kneeling-single-arm-cable-pulldown', order: 3, name: 'Kneeling single-arm cable pulldown', sets: '3', repsLow: '10', repsHigh: '15', rest: '90 s', rir: '1', notes: 'Per arm', incrementType: 'cable' },
       { id: 'straight-arm-cable-pulldown', order: 4, name: 'Straight-arm cable pulldown', sets: '3', repsLow: '12', repsHigh: '15', rest: '75 s', rir: '1', notes: '', incrementType: 'cable' },
       { id: 'reverse-pec-deck', order: 5, name: 'Reverse pec deck', sets: '3', repsLow: '15', repsHigh: '20', rest: '60 s', rir: '0-1', notes: '', incrementType: 'machine' },
@@ -60,6 +60,7 @@ export const DAYS = {
       { id: 'hammer-curl', order: 7, name: 'Hammer curl', sets: '2', repsLow: '10', repsHigh: '12', rest: '60 s', rir: '1', notes: '', incrementType: 'dumbbell' },
       { id: 'captains-chair-knee-raise', order: 8, name: "Captain's-chair knee raise (tuck pelvis, no swing)", sets: '3', repsLow: '10', repsHigh: '15', rest: '60 s', rir: '1', notes: '', incrementType: 'bodyweight' },
       { id: 'seal-row', order: 9, name: 'Chest-supported seal row', sets: '4', repsLow: '8', repsHigh: '10', rest: '2 min', rir: '2', notes: 'Build 2 equipment alternate for t-bar-row (same sets, reps, rest and RIR; swapped in for weeks 7-11)', incrementType: 'machine', swaps: ['t-bar-row'] },
+      { id: 'machine-row', order: 10, name: 'Chest-supported machine row', sets: '4', repsLow: '8', repsHigh: '10', rest: '2 min', rir: '2', notes: "Lower-back-friendly swap-only alternate for t-bar-row (same sets, reps, rest and RIR) — never rendered on its own; only offered via the lower-back-twinge swap option.", incrementType: 'machine', swaps: ['t-bar-row'] },
     ],
   },
   thu: {
@@ -86,7 +87,7 @@ export const DAYS = {
     isRestDay: false,
     warmup: WARMUP_STEPS,
     exercises: [
-      { id: 'hip-thrust', order: 1, name: 'Hip thrust (machine, or barbell with pad)', sets: '4', repsLow: '8', repsHigh: '12', rest: '2 min', rir: '2', notes: '', incrementType: 'hipthrust', cue: "Upper back on the bench edge, chin tucked, ribs down. Drive through the heels and squeeze the glutes at the top. Stop when your body is flat: don't arch the lower back to get higher." },
+      { id: 'hip-thrust', order: 1, name: 'Hip thrust (machine, or barbell with pad)', sets: '4', repsLow: '8', repsHigh: '12', rest: '2 min', rir: '2', notes: '', incrementType: 'hipthrust', cue: "Upper back on the bench edge, chin tucked, ribs down. Drive through the heels and squeeze the glutes at the top. Stop when your body is flat: don't arch the lower back to get higher.", swaps: ['glute-bridge-machine'] },
       { id: 'lying-leg-curl', order: 2, name: 'Lying leg curl', sets: '4', repsLow: '10', repsHigh: '12', rest: '90 s', rir: '1', notes: '', incrementType: 'machine' },
       { id: 'smith-reverse-lunge', order: 3, name: 'Smith machine reverse lunge', sets: '3', repsLow: '8', repsHigh: '12', rest: '90 s', rir: '2', notes: 'Per leg', incrementType: 'machine' },
       { id: 'leg-press-wide', order: 4, name: 'Leg press, high and wide feet', sets: '3', repsLow: '12', repsHigh: '15', rest: '2 min', rir: '1-2', notes: '', incrementType: 'legpress' },
@@ -94,6 +95,7 @@ export const DAYS = {
       { id: 'seated-calf-raise', order: 6, name: 'Seated calf raise', sets: '4', repsLow: '12', repsHigh: '20', rest: '60 s', rir: '1', notes: '', incrementType: 'machine' },
       { id: 'kneeling-cable-crunch', order: 7, name: 'Kneeling cable crunch', sets: '3', repsLow: '10', repsHigh: '15', rest: '60 s', rir: '1', notes: '', incrementType: 'cable' },
       { id: 'front-plank-stomach-vacuum', order: 8, name: 'Front plank (squeeze glutes) + stomach vacuum', sets: '3', repsLow: '30', repsHigh: '45', rest: '45 s', rir: '—', notes: 'Plank holds in seconds, then 3 × 20 s stomach vacuum', incrementType: 'bodyweight' },
+      { id: 'glute-bridge-machine', order: 9, name: 'Glute bridge machine', sets: '4', repsLow: '8', repsHigh: '12', rest: '2 min', rir: '2', notes: "Lower-back-friendly swap-only alternate for hip-thrust (same sets, reps, rest and RIR) — never rendered on its own; only offered via the lower-back-twinge swap option.", incrementType: 'machine', swaps: ['hip-thrust'] },
     ],
   },
   sat: {
