@@ -3,29 +3,52 @@
    No business logic here; this file only lays out the app chrome (mount
    point, tab panels, bottom tabbar) that later tasks fill with content.
 
-   Accent color: #35e0a1 (a vivid mint/emerald green).
-   Rationale: fitness/training apps read well with a "go" green, and this
-   particular shade stays legible on a phone screen at low brightness in a
-   dim gym while still feeling energetic rather than clinical.
-   Contrast check: #35e0a1 against the --bg background (#0b0e0d) measures
-   ~11.4:1 by the WCAG relative-luminance formula — well above the 4.5:1
-   minimum for normal body text, so it is safe to use for text as well as
-   interactive elements, not just accents/borders.
+   Palette (UI/UX refresh):
+   --accent #3d8bff — a vivid electric blue, the single primary-action/
+   progress color (buttons, active tab, stat numbers, links). Contrast
+   against --bg (#07090a) is ~6.1:1 by the WCAG relative-luminance formula
+   — comfortably above the 4.5:1 minimum for normal body text.
+   --highlight #ffb020 (amber, ~11:1) is reserved for "notable" moments
+   only — a new-weight/PR recommendation, streak callouts — never a
+   default UI color, so it keeps its "something happened" meaning.
+   --success #35e0a1 is the ORIGINAL accent green, narrowed in role to
+   "done/completed" states only (a logged set, a finished checklist item)
+   rather than the app's primary color — still ~11.4:1 on --bg.
+   --danger #ff6b6b (~7.3:1) is unchanged — destructive actions/warnings.
+   Every one of the four was re-checked against the new --bg below; all
+   clear 4.5:1 for text use, not just as accents/borders.
 */
 
 :root {
-  --bg: #0b0e0d;           /* near-black page background */
-  --surface: #161a19;      /* cards, tabbar, raised panels */
-  --surface-alt: #1f2523;  /* slightly lighter surface for hover/active states */
-  --border: #2a3230;       /* subtle separators */
+  --bg: #07090a;           /* near-black page background */
+  --surface: #14181b;      /* cards, tabbar, raised panels */
+  --surface-alt: #1e2327;  /* slightly lighter surface for hover/active states */
+  --border: #272d32;       /* subtle separators */
   --text: #eef1f0;         /* primary text */
-  --text-dim: #9aa39f;     /* secondary / muted text */
-  --accent: #35e0a1;       /* single accent color — see note above */
-  --accent-text: #04140d;  /* text drawn on top of an accent-filled control */
+  --text-dim: #93a0a8;     /* secondary / muted text */
+  --accent: #3d8bff;       /* primary accent — see note above */
+  --accent-text: #03101f;  /* text drawn on top of an accent-filled control */
+  --accent-glow: rgba(61, 139, 255, 0.32);
+  --highlight: #ffb020;    /* PR / streak / "notable" accent — use sparingly */
+  --highlight-text: #241400;
+  --success: #35e0a1;      /* done/completed states only */
+  --success-text: #04140d;
   --danger: #ff6b6b;       /* reserved for destructive actions/warnings */
+
+  --card-shadow: 0 4px 20px -6px var(--accent-glow);
 
   --tap-min: 44px;         /* iOS minimum comfortable tap target */
   --radius: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 * {
@@ -78,6 +101,24 @@ section[data-tab-panel][hidden] {
   display: none;
 }
 
+/* Replaying fade-in: an element re-entering the render tree from
+   display:none restarts any animation named on it, so this plays again
+   every time router.js un-hides a panel — no JS hook needed. */
+@keyframes tab-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+section[data-tab-panel]:not([hidden]) {
+  animation: tab-fade-in 180ms ease-out;
+}
+
 #tabbar {
   position: fixed;
   left: 0;
@@ -123,6 +164,14 @@ button {
   background: var(--surface-alt);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  transition: transform 0.08s ease;
+}
+
+/* Tap feedback on every button in the app — a gym-use affordance: a quick
+   visual "that registered" cue matters more here than on a desktop site,
+   since a sweaty/gloved tap can't rely on a hover state to confirm itself. */
+button:active {
+  transform: scale(0.96);
 }
 
 /* iOS tap-target minimums for interactive controls. */
@@ -157,4 +206,30 @@ a {
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+/* Shared pill/chip utility — muscle-group focus tags, phase badges, etc.
+   .pill-accent is the emphasized variant (e.g. the currently-active item
+   in a set of otherwise-neutral pills). */
+.pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.pill-accent {
+  border-color: var(--accent);
+  color: var(--accent);
 }

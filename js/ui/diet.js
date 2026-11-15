@@ -150,6 +150,7 @@ function injectStyles() {
       gap: 16px;
       background: var(--surface);
       border: 1px solid var(--border);
+      box-shadow: var(--card-shadow);
       border-radius: var(--radius);
       padding: 14px;
       margin-bottom: 16px;
@@ -212,6 +213,7 @@ function injectStyles() {
     .meal-card {
       background: var(--surface);
       border: 1px solid var(--border);
+      box-shadow: var(--card-shadow);
       border-radius: var(--radius);
       padding: 12px 14px;
     }
@@ -272,6 +274,7 @@ function injectStyles() {
     .diet-section {
       background: var(--surface);
       border: 1px solid var(--border);
+      box-shadow: var(--card-shadow);
       border-radius: var(--radius);
       padding: 12px 14px;
       margin-bottom: 16px;

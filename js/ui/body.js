@@ -39,7 +39,7 @@ import { getWeekInfo, getDayKeyForDate, isCheckinWeek } from '../week.js';
 
 const CHART_WIDTH = 320;
 const CHART_HEIGHT = 120;
-const CHART_COLOR = '#35e0a1'; // matches --accent in css/styles.css
+const CHART_COLOR = '#3d8bff'; // matches --accent in css/styles.css
 
 const TRACKED_EXERCISES = [
   { id: 'incline-db-press', label: 'Incline DB press' },
@@ -104,6 +104,7 @@ function injectStyles() {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
+      box-shadow: var(--card-shadow);
       padding: 12px 14px;
       margin-bottom: 16px;
     }

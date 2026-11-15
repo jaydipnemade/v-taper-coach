@@ -176,6 +176,7 @@ function injectStyles() {
     .progress-section {
       background: var(--surface);
       border: 1px solid var(--border);
+      box-shadow: var(--card-shadow);
       border-radius: var(--radius);
       padding: 12px 14px;
       margin-bottom: 16px;

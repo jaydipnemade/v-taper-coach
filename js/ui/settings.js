@@ -152,6 +152,7 @@ function injectStyles() {
     .settings-card {
       background: var(--surface);
       border: 1px solid var(--border);
+      box-shadow: var(--card-shadow);
       border-radius: var(--radius);
       padding: 16px;
       margin-top: 24px;

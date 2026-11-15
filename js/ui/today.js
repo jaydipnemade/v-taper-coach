@@ -348,7 +348,9 @@ async function renderLoggerSection(details, exercise, phaseInfo, sessionCtx, his
   wrapper.className = 'set-logger';
 
   const recEl = document.createElement('p');
-  recEl.className = 'set-logger-recommendation';
+  recEl.className = rec.type === 'increaseWeight'
+    ? 'set-logger-recommendation is-pr'
+    : 'set-logger-recommendation';
   recEl.textContent = formatRecommendation(rec);
   wrapper.appendChild(recEl);
 
@@ -376,6 +378,14 @@ function renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, det
   const row = document.createElement('div');
   row.className = 'set-row';
 
+  const existing = exState.sets[index];
+
+  const badge = document.createElement('span');
+  badge.className = `set-badge ${existing ? 'is-done' : 'is-pending'}`;
+  badge.setAttribute('aria-hidden', 'true');
+  badge.textContent = existing ? '✓' : String(index + 1);
+  row.appendChild(badge);
+
   const label = document.createElement('span');
   label.className = 'set-row-label';
   label.textContent = `Set ${index + 1}`;
@@ -385,8 +395,6 @@ function renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, det
   lastEl.className = 'set-row-lasttime';
   lastEl.textContent = `Last time: ${formatSetSummary(last?.sets?.[index])}`;
   row.appendChild(lastEl);
-
-  const existing = exState.sets[index];
 
   const weightInput = document.createElement('input');
   weightInput.type = 'number';
@@ -528,6 +536,17 @@ function renderSetRow(index, exercise, phaseInfo, sessionCtx, last, exState, det
     }
 
     await renderLoggerSection(details, exercise, phaseInfo, sessionCtx, historyKey);
+
+    // renderLoggerSection just rebuilt every row from scratch, so the flash
+    // targets the FRESH node at this same index, not the (now-detached) one
+    // this handler closed over. The transition in .set-row's CSS rule
+    // carries it back to transparent on its own — removing the class after
+    // one beat is enough, no animationend listener needed.
+    const freshRow = details.querySelectorAll('.set-row')[index];
+    if (freshRow) {
+      freshRow.classList.add('is-just-logged');
+      setTimeout(() => freshRow.classList.remove('is-just-logged'), 600);
+    }
   });
   row.appendChild(logBtn);
 
@@ -562,14 +581,57 @@ function syncAllOfflineNotes() {
 window.addEventListener('online', syncAllOfflineNotes);
 window.addEventListener('offline', syncAllOfflineNotes);
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/**
+ * A small looping "rep" motion cue — a barbell silhouette that bobs up and
+ * down via the `.motion-icon-bar` CSS animation. Purely decorative
+ * (aria-hidden): a lightweight stand-in for a real exercise-demo video,
+ * which this offline, no-asset-pipeline app has no way to source or ship.
+ * @returns {SVGSVGElement}
+ */
+function renderMotionIcon() {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'motion-icon');
+  svg.setAttribute('viewBox', '0 0 48 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+
+  const group = document.createElementNS(SVG_NS, 'g');
+  group.setAttribute('class', 'motion-icon-bar');
+
+  const bar = document.createElementNS(SVG_NS, 'rect');
+  bar.setAttribute('x', '8');
+  bar.setAttribute('y', '10');
+  bar.setAttribute('width', '32');
+  bar.setAttribute('height', '4');
+  bar.setAttribute('rx', '2');
+  group.appendChild(bar);
+
+  for (const cx of [8, 40]) {
+    const plate = document.createElementNS(SVG_NS, 'circle');
+    plate.setAttribute('cx', String(cx));
+    plate.setAttribute('cy', '12');
+    plate.setAttribute('r', '7');
+    group.appendChild(plate);
+  }
+
+  svg.appendChild(group);
+  return svg;
+}
+
 function renderHowToPanel(exercise) {
   const panel = document.createElement('div');
   panel.className = 'how-to-panel';
 
+  const titleRow = document.createElement('div');
+  titleRow.className = 'how-to-title-row';
+
   const title = document.createElement('h4');
   title.className = 'how-to-title';
   title.textContent = 'How to do it';
-  panel.appendChild(title);
+  titleRow.append(title, renderMotionIcon());
+  panel.appendChild(titleRow);
 
   const cueEl = document.createElement('p');
   cueEl.className = 'how-to-cue';
@@ -1060,9 +1122,7 @@ function injectStyles() {
       font-size: 1.1rem;
     }
     .today-focus {
-      color: var(--text-dim);
       margin: 0 0 16px;
-      font-size: 0.9rem;
     }
     .plan-notes {
       display: flex;
@@ -1082,6 +1142,7 @@ function injectStyles() {
     .warmup-checklist {
       background: var(--surface);
       border: 1px solid var(--border);
+      box-shadow: var(--card-shadow);
       border-radius: var(--radius);
       padding: 12px 16px;
       margin-bottom: 16px;
@@ -1111,6 +1172,7 @@ function injectStyles() {
     .exercise-row {
       background: var(--surface);
       border: 1px solid var(--border);
+      box-shadow: var(--card-shadow);
       border-radius: var(--radius);
       overflow: hidden;
     }
@@ -1146,6 +1208,7 @@ function injectStyles() {
     .rest-day-card {
       background: var(--surface);
       border: 1px solid var(--border);
+      box-shadow: var(--card-shadow);
       border-radius: var(--radius);
       padding: 16px;
     }
@@ -1165,6 +1228,18 @@ function injectStyles() {
       font-weight: 600;
       color: var(--accent);
     }
+    /* A weight-increase recommendation is the one moment worth calling out
+       — a brief amber pulse, not a permanent color change (recEl still
+       reads --accent at rest; this only draws the eye on first render of a
+       fresh "increaseWeight" recommendation). */
+    .set-logger-recommendation.is-pr {
+      color: var(--highlight);
+      animation: pr-pulse 1.4s ease-out 2;
+    }
+    @keyframes pr-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.55; }
+    }
     .set-row {
       display: flex;
       flex-wrap: wrap;
@@ -1172,14 +1247,43 @@ function injectStyles() {
       gap: 6px;
       border-top: 1px solid var(--border);
       padding-top: 8px;
+      border-radius: var(--radius);
+      transition: background-color 0.3s ease;
     }
     .set-row:first-of-type {
       border-top: none;
       padding-top: 0;
     }
+    /* Freshly logged/updated set: a quick success flash, then fades back to
+       transparent over the same transition — no JS cleanup needed beyond
+       removing the class (see the "Log set" handler), since the color
+       itself settles back to nothing on its own. */
+    .set-row.is-just-logged {
+      background-color: rgba(53, 224, 161, 0.18); /* --success at ~18% — fallback if color-mix() is unsupported */
+      background-color: color-mix(in srgb, var(--success) 22%, transparent);
+    }
     .set-row-label {
       font-weight: 600;
       min-width: 44px;
+    }
+    .set-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      font-size: 0.72rem;
+      font-weight: 700;
+      flex: 0 0 auto;
+    }
+    .set-badge.is-pending {
+      border: 1.5px solid var(--border);
+      color: var(--text-dim);
+    }
+    .set-badge.is-done {
+      background: var(--success);
+      color: var(--success-text);
     }
     .set-row-lasttime {
       color: var(--text-dim);
@@ -1239,10 +1343,34 @@ function injectStyles() {
       font-weight: 600;
       margin-bottom: 10px;
     }
+    .how-to-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 6px;
+    }
     .how-to-title,
     .swap-title {
-      margin: 0 0 6px;
+      margin: 0;
       font-size: 0.9rem;
+    }
+    /* A small looping "rep" motion cue next to the how-to-do-it title —
+       pure CSS/SVG, no video/image assets, degrades to a static icon under
+       prefers-reduced-motion (handled globally above). */
+    .motion-icon {
+      width: 30px;
+      height: 16px;
+      flex: 0 0 auto;
+    }
+    .motion-icon-bar {
+      fill: var(--accent);
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: motion-bounce 1.1s ease-in-out infinite;
+    }
+    @keyframes motion-bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-3px); }
     }
     .how-to-cue {
       color: var(--text-dim);
@@ -1333,6 +1461,11 @@ function injectStyles() {
       font-weight: 700;
       min-width: 52px;
       text-align: center;
+      animation: rest-timer-pulse 1s ease-in-out infinite;
+    }
+    @keyframes rest-timer-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
     }
     .rest-timer-btn {
       min-height: var(--tap-min);
@@ -1659,9 +1792,18 @@ export async function renderTodayTab(container) {
   heading.textContent = `${day.label} — ${weekLabel}`;
   root.appendChild(heading);
 
-  const focus = document.createElement('p');
-  focus.className = 'today-focus';
-  focus.textContent = day.focus;
+  const focus = document.createElement('div');
+  focus.className = 'today-focus pill-row';
+  // day.focus is a short comma-separated phrase (e.g. "Quads, calves, core"
+  // or, for rest days, "Full rest, 8k steps, mobility") — rendered as
+  // individual pills rather than one run of text, echoing how muscle-group
+  // tags read in other training apps' day-list UI.
+  day.focus.split(',').forEach((part) => {
+    const pill = document.createElement('span');
+    pill.className = 'pill';
+    pill.textContent = part.trim();
+    focus.appendChild(pill);
+  });
   root.appendChild(focus);
 
   root.appendChild(renderPlanNotes(weekNumber, dayKey));
