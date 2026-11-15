@@ -11,6 +11,8 @@
   <script type="module">
     import {
       DAY_ORDER, DAYS, BLOCK_STRUCTURE, MEAL_PLAN, INCREMENT_BY_TYPE,
+      EXTRA_CARDIO, WAIST_RULES, EARLY_DELOAD_TRIGGER, PHYSIO_WARNING,
+      TDEE_REFERENCE, MORNING_TRAINING_NOTE, SUPPLEMENTS, SUNDAY_PREP_STEPS,
     } from './js/data/plan.js';
     import {
       getSetting, putSetting,
@@ -75,6 +77,89 @@
       }).filter((x) => Math.abs(x.diff) > 5);
       return off.length === 0 || off.map((x) => `${x.d}:${x.diff}`).join(', ');
     });
+
+    // --- Final-review batch B: 8 PDF-sourced items added to plan.js/the UI -
+    // Basic shape/presence assertions for the 6 new plan.js exports (the
+    // other two, SUPPLEMENTS/SUNDAY_PREP_STEPS, already existed and already
+    // had assertions elsewhere if any — these just confirm the new UI code
+    // has real data to import, not empty/undefined exports).
+
+    await check('EXTRA_CARDIO covers weeks 1-12 across its two blocks, no gaps/overlaps', () => {
+      const weeks = [...EXTRA_CARDIO.weeks1to4.weeks, ...EXTRA_CARDIO.weeks5to12.weeks].sort((a, b) => a - b);
+      const expected = Array.from({ length: 12 }, (_, i) => i + 1);
+      return JSON.stringify(weeks) === JSON.stringify(expected) || `weeks: ${weeks.join(',')}`;
+    });
+
+    await check('EXTRA_CARDIO afterDays reference real DAY_ORDER keys', () => {
+      const allDays = [...EXTRA_CARDIO.weeks1to4.afterDays, ...EXTRA_CARDIO.weeks5to12.afterDays];
+      const bad = allDays.filter((d) => !DAY_ORDER.includes(d));
+      return bad.length === 0 || `bad: ${bad.join(', ')}`;
+    });
+
+    await check('WAIST_RULES has 3 non-empty string entries', () => {
+      const ok = WAIST_RULES.length === 3 && WAIST_RULES.every((r) => typeof r === 'string' && r.length > 0);
+      return ok || `got: ${JSON.stringify(WAIST_RULES)}`;
+    });
+
+    await check('EARLY_DELOAD_TRIGGER and PHYSIO_WARNING are non-empty strings', () => {
+      const ok = typeof EARLY_DELOAD_TRIGGER === 'string' && EARLY_DELOAD_TRIGGER.length > 0
+        && typeof PHYSIO_WARNING === 'string' && PHYSIO_WARNING.length > 0;
+      return ok || `EARLY_DELOAD_TRIGGER=${JSON.stringify(EARLY_DELOAD_TRIGGER)}, PHYSIO_WARNING=${JSON.stringify(PHYSIO_WARNING)}`;
+    });
+
+    await check('TDEE_REFERENCE has formula/example/caveat non-empty strings', () => {
+      const bad = ['formula', 'example', 'caveat'].filter(
+        (k) => typeof TDEE_REFERENCE[k] !== 'string' || TDEE_REFERENCE[k].length === 0,
+      );
+      return bad.length === 0 || `bad: ${bad.join(', ')}`;
+    });
+
+    await check('MORNING_TRAINING_NOTE is a non-empty string', () => (
+      typeof MORNING_TRAINING_NOTE === 'string' && MORNING_TRAINING_NOTE.length > 0
+    ) || `got: ${JSON.stringify(MORNING_TRAINING_NOTE)}`);
+
+    await check('SUPPLEMENTS and SUNDAY_PREP_STEPS (pre-existing data) are still present and non-empty', () => (
+      SUPPLEMENTS.length > 0 && SUNDAY_PREP_STEPS.length > 0
+    ) || `SUPPLEMENTS.length=${SUPPLEMENTS.length}, SUNDAY_PREP_STEPS.length=${SUNDAY_PREP_STEPS.length}`);
+
+    // js/ui/diet.js's displayedMealName() — the morning-toggle meal-relabeling
+    // transform factored into a small pure function, per the brief. Loaded
+    // dynamically (see Task 3 note below) so a missing/broken module fails
+    // only these checks instead of blanking the whole page.
+    const diet = await import('./js/ui/diet.js').catch((err) => ({ loadError: err.message }));
+    const breakfastMeal = { id: 'breakfast', name: 'Breakfast' };
+    const dinnerMeal = { id: 'dinner', name: 'Dinner (post-workout)' };
+    const sunDinnerMeal = { id: 'dinner', name: 'Dinner (eat out)' };
+    const lunchMeal = { id: 'lunch', name: 'Lunch' };
+
+    const arrEq = (actual, expected) => (JSON.stringify(actual) === JSON.stringify(expected)
+      || `got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
+
+    await check('displayedMealName: toggle off leaves every meal name unchanged', () => arrEq(
+      [
+        diet.displayedMealName(breakfastMeal, false, 'mon'),
+        diet.displayedMealName(dinnerMeal, false, 'mon'),
+        diet.displayedMealName(lunchMeal, false, 'mon'),
+      ],
+      ['Breakfast', 'Dinner (post-workout)', 'Lunch'],
+    ));
+
+    await check('displayedMealName: toggle on, training day -> breakfast becomes post-workout, dinner drops the suffix', () => arrEq(
+      [
+        diet.displayedMealName(breakfastMeal, true, 'mon'),
+        diet.displayedMealName(dinnerMeal, true, 'mon'),
+        diet.displayedMealName(lunchMeal, true, 'mon'),
+      ],
+      ['Breakfast (post-workout)', 'Dinner', 'Lunch'],
+    ));
+
+    await check('displayedMealName: toggle on, Sunday is untouched regardless', () => arrEq(
+      [
+        diet.displayedMealName(breakfastMeal, true, 'sun'),
+        diet.displayedMealName(sunDinnerMeal, true, 'sun'),
+      ],
+      ['Breakfast', 'Dinner (eat out)'],
+    ));
 
     // --- js/db.js (Task 2) -------------------------------------------------
     // Baseline reads (rather than hardcoded 0/1/2) keep these assertions

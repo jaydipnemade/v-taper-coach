@@ -158,9 +158,44 @@ export const BLOCK_STRUCTURE = [
 
 export const INCREMENT_BY_TYPE = { dumbbell: 2.5, machine: 2.5, legpress: 5, hipthrust: 5, cable: '1 pin', bodyweight: null };
 
+// Source: docs/superpowers/specs/plan-source-extract.txt, "Cardio" section (page 6).
+export const EXTRA_CARDIO = {
+  weeks1to4: {
+    weeks: [1, 2, 3, 4],
+    afterDays: ['mon', 'wed'], // Day 1 and Day 3
+    session: '2 × 20 min incline walk after Day 1 and Day 3 sessions (incline 8-10%, 5-5.5 km/h)',
+  },
+  weeks5to12: {
+    weeks: [5, 6, 7, 8, 9, 10, 11, 12],
+    afterDays: ['sat'], // Day 6
+    session: 'Only the 20 min walk on Day 6, to protect leg recovery during the lean gain',
+  },
+  dailySteps: '8,000-10,000 steps every day. This matters more for waist control than any ab exercise.',
+};
+
+// Source: "Waist rules: what not to do" (page 6).
+export const WAIST_RULES = [
+  'No weighted side bends, weighted Russian twists or heavy oblique crunches. They build the obliques and widen the waist.',
+  'Core work is anti-movement (dead bug, Pallof, plank) plus front-abs only (cable crunch, knee raise). That builds a flat, tight midsection.',
+  'Stomach vacuum 4-5 days a week. It trains the transverse abdominis, which pulls the belly in.',
+];
+
+// Source: 12-week schedule table footnote (page 7).
+export const EARLY_DELOAD_TRIGGER =
+  'Deload early (any week) if two of these happen together: strength drops two sessions in a row, sleep gets worse, joints ache, or you dread training.';
+
 export const NUTRITION_PHASES = {
   recomp: { weeks: [1, 2, 3, 4], kcal: 2500, protein: 140, fat: 65, carbs: 340 },
   leanGain: { weeks: [5, 6, 7, 8, 9, 10, 11, 12], kcal: 2850, protein: 140, fat: 75, carbs: 405 },
+};
+
+// Source: "TDEE calculation (Mifflin-St Jeor, male)" (page 8). Display-only reference —
+// do NOT wire this into any live recalculation; NUTRITION_PHASES.kcal remains the single
+// source of truth for daily targets, per the original design's "Known gaps" note.
+export const TDEE_REFERENCE = {
+  formula: 'Mifflin-St Jeor (male): BMR = 10 × weight(kg) + 6.25 × height(cm) - 5 × age + 5, then × an activity multiplier.',
+  example: 'BMR = 10×67 + 6.25×173 - 5×29 + 5 = 1,611 kcal. TDEE = 1,611 × 1.6 (6 training days + 8-10k steps) ≈ 2,600 kcal.',
+  caveat: 'The 1.6 multiplier is an estimate. Your real maintenance is whatever keeps your weekly average weight flat, and the check-in rules correct for it.',
 };
 
 export const ADD_ONS = [
@@ -171,6 +206,10 @@ export const ADD_ONS = [
 ];
 
 export const PRE_TRAINING_BANANA = { label: '1 extra banana before training', kcal: 100 };
+
+// Source: "Rules that matter more than the exact menu" (page 13).
+export const MORNING_TRAINING_NOTE =
+  'Training in the morning instead? Move the pre-workout snack to before the gym, and make breakfast your post-workout meal.';
 
 export const MEAL_PLAN = {
   mon: {
@@ -316,3 +355,7 @@ export const LOWER_BACK_TWINGE_SWAPS = {
   'hip-thrust': 'glute-bridge-machine',
   't-bar-row': 'machine-row',
 };
+
+// Source: "Training volume rules" table (page 17).
+export const PHYSIO_WARNING =
+  "Pain that's sharp, shoots down the leg, or lasts more than a week: stop the aggravating exercise and see a physiotherapist.";

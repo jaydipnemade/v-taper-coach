@@ -17,6 +17,14 @@
 //       checkedItems: string[],  // GROCERY_LIST item strings (no id field
 //     },                         // on GROCERY_LIST entries, so the item
 //                                 // text itself is the checklist identity)
+//     sundayPrepChecklist?: {  // weekly Sunday-prep checklist (final-review
+//       weekOf: 'YYYY-MM-DD',  // batch B) — same shape/staleness logic as
+//       checkedItems: string[], // groceryChecklist above; SUNDAY_PREP_STEPS
+//     },                        // strings (no id field) are the identity.
+//     trainsInMorning?: boolean,  // final-review batch B — true = trains in
+//       // the morning (default false/absent = evening training, the plan's
+//       // default assumption). Read by diet.js to relabel the breakfast/
+//       // dinner meal names (MEAL_PLAN itself is never mutated).
 //   }
 //
 // Height/weight are always persisted in metric regardless of the `units`
@@ -24,7 +32,7 @@
 // at the form boundary.
 
 import { getSetting, putSetting, exportAllData, importAllData } from '../db.js';
-import { GROCERY_LIST } from '../data/plan.js';
+import { GROCERY_LIST, SUPPLEMENTS, SUNDAY_PREP_STEPS, MORNING_TRAINING_NOTE } from '../data/plan.js';
 
 const DEFAULT_HEIGHT_CM = 173;
 const DEFAULT_WEIGHT_KG = 67;
@@ -99,6 +107,22 @@ function injectStyles() {
       padding: 8px 10px;
       min-height: var(--tap-min);
       font-size: 1rem;
+    }
+    .settings-checkbox-field {
+      margin-top: -4px;
+    }
+    .settings-checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: var(--tap-min);
+      color: var(--text);
+      font-size: 1rem;
+    }
+    .settings-checkbox-help {
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      margin: 4px 0 0;
     }
     .settings-actions {
       display: flex;
@@ -192,6 +216,21 @@ function injectStyles() {
       align-items: flex-start;
       gap: 8px;
       min-height: var(--tap-min);
+    }
+    .supplements-list {
+      margin: 0;
+    }
+    .supplements-list dt {
+      font-weight: 600;
+      margin-top: 10px;
+    }
+    .supplements-list dt:first-child {
+      margin-top: 0;
+    }
+    .supplements-list dd {
+      color: var(--text-dim);
+      font-size: 0.85rem;
+      margin: 2px 0 0;
     }
     .settings-firstrun-overlay {
       position: fixed;
@@ -302,6 +341,26 @@ function buildProfileForm(settings, onSaved) {
   ageInput.min = '1';
   ageInput.value = String(typeof settings?.age === 'number' ? settings.age : DEFAULT_AGE);
 
+  // Morning-training toggle (final-review batch B) — a genuine persisted
+  // setting (settings.trainsInMorning), not hardcoded into the meal data;
+  // read by diet.js at render time to relabel breakfast/dinner meal names.
+  const morningField = document.createElement('div');
+  morningField.className = 'settings-field settings-checkbox-field';
+
+  const morningLabel = document.createElement('label');
+  morningLabel.className = 'settings-checkbox-label';
+  const morningCheckbox = document.createElement('input');
+  morningCheckbox.type = 'checkbox';
+  morningCheckbox.id = 'settings-trains-in-morning';
+  morningCheckbox.checked = Boolean(settings?.trainsInMorning);
+  morningLabel.append(morningCheckbox, document.createTextNode(' I train in the morning'));
+
+  const morningHelp = document.createElement('p');
+  morningHelp.className = 'settings-checkbox-help';
+  morningHelp.textContent = MORNING_TRAINING_NOTE;
+
+  morningField.append(morningLabel, morningHelp);
+
   /** Re-renders height/weight inputs + labels for the given units, from `model`. */
   function applyUnitsToInputs(units) {
     if (units === 'imperial') {
@@ -350,6 +409,7 @@ function buildProfileForm(settings, onSaved) {
     heightField.wrapper,
     weightField.wrapper,
     ageField.wrapper,
+    morningField,
     actions
   );
 
@@ -378,6 +438,7 @@ function buildProfileForm(settings, onSaved) {
       heightCm,
       weightKg,
       age,
+      trainsInMorning: morningCheckbox.checked,
     };
 
     submitBtn.disabled = true;
@@ -399,9 +460,14 @@ function buildProfileForm(settings, onSaved) {
 // `settings.groceryChecklist = { weekOf, checkedItems }`. No new IndexedDB
 // store: it's just a field merged into the existing single `settings`
 // record via the same getSetting()/putSetting() pair the profile form uses.
+//
+// The Sunday-prep checklist (final-review batch B, below) is structurally
+// identical — same shape, same staleness rule — just on a different
+// settings field and a flat (uncategorized) item list, so both share the
+// CHECKLIST_STALE_AFTER_DAYS constant and resolveChecklist() helper here.
 // ---------------------------------------------------------------------------
 
-const GROCERY_STALE_AFTER_DAYS = 7;
+const CHECKLIST_STALE_AFTER_DAYS = 7;
 
 /** Whole-day difference between two 'YYYY-MM-DD' strings, both parsed as
  * local midnight. Math.round (not Math.floor) because a DST transition
@@ -416,17 +482,21 @@ function daysBetweenISO(fromISO, toISO) {
 }
 
 /**
- * Returns the grocery checklist to render, resetting it (and persisting
- * that reset via putSetting, merged into the existing settings record) if
- * it's absent or more than GROCERY_STALE_AFTER_DAYS days old.
+ * Returns the checklist stored at `settings[fieldKey]` to render, resetting
+ * it (and persisting that reset via putSetting, merged into the existing
+ * settings record) if it's absent or more than CHECKLIST_STALE_AFTER_DAYS
+ * days old. Shared by both the grocery checklist (fieldKey
+ * 'groceryChecklist') and the Sunday-prep checklist (fieldKey
+ * 'sundayPrepChecklist') below — same shape, same staleness rule.
  * @param {object|null} settings
+ * @param {string} fieldKey
  * @returns {Promise<{weekOf: string, checkedItems: string[]}>}
  */
-async function resolveGroceryChecklist(settings) {
+async function resolveChecklist(settings, fieldKey) {
   const today = todayISO();
-  const existing = settings?.groceryChecklist;
+  const existing = settings?.[fieldKey];
   const isStale =
-    !existing?.weekOf || daysBetweenISO(existing.weekOf, today) > GROCERY_STALE_AFTER_DAYS;
+    !existing?.weekOf || daysBetweenISO(existing.weekOf, today) > CHECKLIST_STALE_AFTER_DAYS;
 
   if (!isStale) {
     return {
@@ -436,7 +506,7 @@ async function resolveGroceryChecklist(settings) {
   }
 
   const resetChecklist = { weekOf: today, checkedItems: [] };
-  await putSetting({ ...(settings || {}), groceryChecklist: resetChecklist });
+  await putSetting({ ...(settings || {}), [fieldKey]: resetChecklist });
   return resetChecklist;
 }
 
@@ -508,6 +578,98 @@ function renderGroceryChecklist(checklist) {
     });
     card.appendChild(list);
   }
+
+  return card;
+}
+
+// ---------------------------------------------------------------------------
+// Sunday-prep checklist (final-review batch B) — structurally identical to
+// the grocery checklist above (shared resolveChecklist()/
+// CHECKLIST_STALE_AFTER_DAYS), backed by `settings.sundayPrepChecklist =
+// { weekOf, checkedItems }`. SUNDAY_PREP_STEPS is a flat array of plain
+// strings (no categories, no id field), so checked-item identity is the
+// step string itself — same caveat as the grocery list's.
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds the Sunday-prep checklist card, rendering SUNDAY_PREP_STEPS as a
+ * flat checklist. Each checkbox toggle re-reads the current settings record
+ * immediately before writing (same read-merge-write pattern as
+ * renderGroceryChecklist above).
+ * @param {{weekOf: string, checkedItems: string[]}} checklist
+ * @returns {HTMLElement}
+ */
+function renderSundayPrepChecklist(checklist) {
+  const card = document.createElement('section');
+  card.className = 'settings-card';
+  card.setAttribute('data-settings-section', 'sunday-prep');
+
+  const heading = document.createElement('h2');
+  heading.textContent = 'Sunday prep checklist';
+  card.appendChild(heading);
+
+  const weekOfLine = document.createElement('p');
+  weekOfLine.className = 'grocery-week-of';
+  weekOfLine.textContent = `Week of ${checklist.weekOf}`;
+  card.appendChild(weekOfLine);
+
+  const checkedItems = new Set(checklist.checkedItems);
+
+  async function persistCheckedItems() {
+    const current = await getSetting();
+    await putSetting({
+      ...(current || {}),
+      sundayPrepChecklist: { weekOf: checklist.weekOf, checkedItems: Array.from(checkedItems) },
+    });
+  }
+
+  const list = document.createElement('ul');
+  list.className = 'grocery-list';
+  SUNDAY_PREP_STEPS.forEach((step) => {
+    const li = document.createElement('li');
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = checkedItems.has(step);
+    checkbox.addEventListener('change', async () => {
+      if (checkbox.checked) checkedItems.add(step);
+      else checkedItems.delete(step);
+      await persistCheckedItems();
+    });
+    label.append(checkbox, document.createTextNode(step));
+    li.appendChild(label);
+    list.appendChild(li);
+  });
+  card.appendChild(list);
+
+  return card;
+}
+
+// ---------------------------------------------------------------------------
+// Supplements (final-review batch B) — read-only reference display of
+// SUPPLEMENTS ({name, dose, why}). No checklist/settings state: this is
+// reference info, not a weekly task.
+// ---------------------------------------------------------------------------
+
+function renderSupplementsCard() {
+  const card = document.createElement('section');
+  card.className = 'settings-card';
+  card.setAttribute('data-settings-section', 'supplements');
+
+  const heading = document.createElement('h2');
+  heading.textContent = 'Supplements';
+  card.appendChild(heading);
+
+  const list = document.createElement('dl');
+  list.className = 'supplements-list';
+  SUPPLEMENTS.forEach((supplement) => {
+    const nameEl = document.createElement('dt');
+    nameEl.textContent = `${supplement.name} — ${supplement.dose}`;
+    const whyEl = document.createElement('dd');
+    whyEl.textContent = supplement.why;
+    list.append(nameEl, whyEl);
+  });
+  card.appendChild(list);
 
   return card;
 }
@@ -681,9 +843,16 @@ export async function renderSettingsTab(container) {
   // --- Backup section -------------------------------------------------------
   container.appendChild(renderBackupCard(settings, container));
 
+  // --- Supplements (reference, read-only) ----------------------------------
+  container.appendChild(renderSupplementsCard());
+
   // --- Weekly grocery checklist -------------------------------------------
-  const groceryChecklist = await resolveGroceryChecklist(settings);
+  const groceryChecklist = await resolveChecklist(settings, 'groceryChecklist');
   container.appendChild(renderGroceryChecklist(groceryChecklist));
+
+  // --- Sunday prep checklist -----------------------------------------------
+  const sundayPrepChecklist = await resolveChecklist(settings, 'sundayPrepChecklist');
+  container.appendChild(renderSundayPrepChecklist(sundayPrepChecklist));
 }
 
 /**

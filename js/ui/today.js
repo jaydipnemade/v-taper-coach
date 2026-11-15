@@ -7,8 +7,20 @@
 // how-to-do-it panel, swap-choice UI, stomach-vacuum timer trigger, and
 // warm-up checklist persistence — this task only builds the read-only
 // session/exercise-list structure those features hang off of.
+//
+// Final-review batch B adds three static/informational pieces: a "plan
+// notes" block (extra-cardio session text + daily-steps reminder + the
+// early-deload-trigger reminder) under the day header, and the physio pain
+// warning alongside each exercise's swap-menu UI (renderSwapControl).
 
-import { DAYS, WARMUP_STEPS, LOWER_BACK_TWINGE_SWAPS } from '../data/plan.js';
+import {
+  DAYS,
+  WARMUP_STEPS,
+  LOWER_BACK_TWINGE_SWAPS,
+  EXTRA_CARDIO,
+  PHYSIO_WARNING,
+  EARLY_DELOAD_TRIGGER,
+} from '../data/plan.js';
 import { getWeekInfo } from '../week.js';
 import {
   getSetting,
@@ -681,24 +693,32 @@ function renderSwapControl(exercise, onSwap) {
     none.className = 'swap-none';
     none.textContent = 'No alternatives available for this exercise.';
     wrap.appendChild(none);
-    return wrap;
+  } else {
+    const optionsRow = document.createElement('div');
+    optionsRow.className = 'swap-options';
+    options.forEach((option) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = option.isBackFriendly
+        ? 'swap-option-btn swap-option-recommended'
+        : 'swap-option-btn';
+      btn.textContent = option.isBackFriendly
+        ? `${option.name} (lower-back friendly)`
+        : option.name;
+      btn.addEventListener('click', () => onSwap(option.id));
+      optionsRow.appendChild(btn);
+    });
+    wrap.appendChild(optionsRow);
   }
 
-  const optionsRow = document.createElement('div');
-  optionsRow.className = 'swap-options';
-  options.forEach((option) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = option.isBackFriendly
-      ? 'swap-option-btn swap-option-recommended'
-      : 'swap-option-btn';
-    btn.textContent = option.isBackFriendly
-      ? `${option.name} (lower-back friendly)`
-      : option.name;
-    btn.addEventListener('click', () => onSwap(option.id));
-    optionsRow.appendChild(btn);
-  });
-  wrap.appendChild(optionsRow);
+  // Physio pain warning (final-review batch B) — static text alongside the
+  // swap menu, since both are about in-session pain response: a twinge is
+  // what the swap menu above is for, but sharp/radiating/week-plus pain
+  // means stop and see a physio instead of swapping exercises.
+  const physioNote = document.createElement('p');
+  physioNote.className = 'swap-physio-warning';
+  physioNote.textContent = PHYSIO_WARNING;
+  wrap.appendChild(physioNote);
 
   return wrap;
 }
@@ -1044,6 +1064,21 @@ function injectStyles() {
       margin: 0 0 16px;
       font-size: 0.9rem;
     }
+    .plan-notes {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 16px;
+    }
+    .plan-notes p {
+      margin: 0;
+      font-size: 0.82rem;
+      color: var(--text-dim);
+    }
+    .plan-notes-cardio {
+      color: var(--accent);
+      font-weight: 600;
+    }
     .warmup-checklist {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -1265,6 +1300,12 @@ function injectStyles() {
       font-size: 0.8rem;
       margin: 0;
     }
+    .swap-physio-warning {
+      color: var(--text-dim);
+      font-size: 0.78rem;
+      font-style: italic;
+      margin: 8px 0 0;
+    }
     .rest-timer-widget {
       position: fixed;
       left: 50%;
@@ -1420,6 +1461,59 @@ function renderExerciseRow(initialExercise, phaseInfo, sessionCtx, dayIdsBySlot)
   return row;
 }
 
+// ---------------------------------------------------------------------------
+// Plan notes (final-review batch B): extra-cardio session/steps reminder
+// and the early-deload-trigger reminder. Purely informational, always
+// visible — no automated detection of the deload trigger's own signals
+// (strength drops, worse sleep, joint ache, dread) from stored data; that's
+// explicitly out of scope (see brief). The check-in-table's own, separate
+// missed-progress signal is already implemented in js/checkin.js.
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the EXTRA_CARDIO session text for today's week/day, if any of its
+ * weeks1to4/weeks5to12 blocks apply, else null.
+ * @param {number|null} weekNumber
+ * @param {string} dayKey
+ * @returns {string|null}
+ */
+function matchingExtraCardioSession(weekNumber, dayKey) {
+  if (weekNumber === null) return null;
+  const { weeks1to4, weeks5to12 } = EXTRA_CARDIO;
+  if (weeks1to4.weeks.includes(weekNumber) && weeks1to4.afterDays.includes(dayKey)) {
+    return weeks1to4.session;
+  }
+  if (weeks5to12.weeks.includes(weekNumber) && weeks5to12.afterDays.includes(dayKey)) {
+    return weeks5to12.session;
+  }
+  return null;
+}
+
+function renderPlanNotes(weekNumber, dayKey) {
+  const section = document.createElement('div');
+  section.className = 'plan-notes';
+
+  const cardioSession = matchingExtraCardioSession(weekNumber, dayKey);
+  if (cardioSession) {
+    const cardioNote = document.createElement('p');
+    cardioNote.className = 'plan-notes-cardio';
+    cardioNote.textContent = cardioSession;
+    section.appendChild(cardioNote);
+  }
+
+  const stepsNote = document.createElement('p');
+  stepsNote.className = 'plan-notes-steps';
+  stepsNote.textContent = EXTRA_CARDIO.dailySteps;
+  section.appendChild(stepsNote);
+
+  const deloadNote = document.createElement('p');
+  deloadNote.className = 'plan-notes-deload';
+  deloadNote.textContent = EARLY_DELOAD_TRIGGER;
+  section.appendChild(deloadNote);
+
+  return section;
+}
+
 function renderRestDay(root, day) {
   const card = document.createElement('div');
   card.className = 'rest-day-card';
@@ -1567,6 +1661,8 @@ export async function renderTodayTab(container) {
   focus.className = 'today-focus';
   focus.textContent = day.focus;
   root.appendChild(focus);
+
+  root.appendChild(renderPlanNotes(weekNumber, dayKey));
 
   if (day.isRestDay) {
     renderRestDay(root, day);

@@ -2,7 +2,10 @@
 // The Diet tab — today's meal checklist (persisted), running kcal/protein
 // totals with a protein progress ring, the lean-gain add-on picker +
 // pre-training-banana checkbox (gated on week >= 5), a protein-swap control
-// per meal, and a custom-food quick-add.
+// per meal, a custom-food quick-add, and (final-review batch B) a waist-rules
+// reference list, a collapsible TDEE reference, and morning-training-aware
+// meal relabeling (see displayedMealName() below — settings.trainsInMorning
+// read-only here, never mutating MEAL_PLAN itself).
 //
 // Persistence shape (dietLog store, keyPath 'date'):
 //   {
@@ -20,7 +23,7 @@
 // principle be logged again on another day, so dietLog only references ids
 // into it rather than embedding the food data.
 
-import { ADD_ONS, PRE_TRAINING_BANANA, PROTEIN_SWAPS } from '../data/plan.js';
+import { ADD_ONS, PRE_TRAINING_BANANA, PROTEIN_SWAPS, WAIST_RULES, TDEE_REFERENCE } from '../data/plan.js';
 import { getMealsForDay, getTargetsForWeek, computeDayTotals, applyProteinSwap } from '../nutrition.js';
 import { getDietLog, putDietLog, getAllCustomFoods, addCustomFood, getSetting } from '../db.js';
 import { getWeekInfo, getDayKeyForDate } from '../week.js';
@@ -94,6 +97,29 @@ function displayedMealItems(meal, dietLog) {
     return meal.items;
   }
   return applyProteinSwap(meal.items, matchedKeyword, chosenKeyword);
+}
+
+// ---------------------------------------------------------------------------
+// Morning-training-aware meal relabeling (final-review batch B).
+//
+// MORNING_TRAINING_NOTE ("move the pre-workout snack to before the gym, and
+// make breakfast your post-workout meal") means that when the trainee
+// trains in the morning, the post-workout meal is breakfast, not dinner.
+// This is a pure, display-only transform keyed off meal.id — it never
+// mutates MEAL_PLAN itself (the swap-aware logic lives entirely here).
+//
+// Sunday (`dayKey === 'sun'`) is excluded unconditionally: MEAL_PLAN.sun's
+// `dinner` meal is already labeled "Dinner (eat out)" (a rest day, no
+// training, no post-workout framing at all) — relabeling it to plain
+// "Dinner" would silently drop that "(eat out)" qualifier, which the brief
+// explicitly says must stay untouched regardless of the toggle.
+// ---------------------------------------------------------------------------
+
+export function displayedMealName(meal, trainsInMorning, dayKey) {
+  if (!trainsInMorning || dayKey === 'sun') return meal.name;
+  if (meal.id === 'breakfast') return 'Breakfast (post-workout)';
+  if (meal.id === 'dinner') return 'Dinner';
+  return meal.name;
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +343,23 @@ function injectStyles() {
     .custom-food-form button {
       flex: 0 0 auto;
     }
+    .diet-reference-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--text-dim);
+      font-size: 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .diet-tdee-reference summary {
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    .diet-tdee-reference p {
+      margin: 8px 0 0;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -390,8 +433,10 @@ function renderSummary(totals, targets) {
  * @param {object} meal
  * @param {object} dietLog
  * @param {() => Promise<void>} onChange persists dietLog and re-renders the tab
+ * @param {boolean} trainsInMorning settings.trainsInMorning
+ * @param {string} dayKey today's DAY_ORDER key (for the Sunday exclusion)
  */
-function renderMealCard(meal, dietLog, onChange) {
+function renderMealCard(meal, dietLog, onChange, trainsInMorning, dayKey) {
   const card = document.createElement('div');
   card.className = 'meal-card';
 
@@ -419,7 +464,7 @@ function renderMealCard(meal, dietLog, onChange) {
   titleRow.className = 'meal-card-title-row';
   const nameEl = document.createElement('span');
   nameEl.className = 'meal-card-name';
-  nameEl.textContent = meal.name;
+  nameEl.textContent = displayedMealName(meal, trainsInMorning, dayKey);
   const macrosEl = document.createElement('span');
   macrosEl.className = 'meal-card-macros';
   macrosEl.textContent = `${meal.kcal} kcal · ${meal.protein}g protein`;
@@ -614,6 +659,61 @@ function renderCustomFoodSection(dietLog, todayCustomFoods, onChange) {
 }
 
 /**
+ * Renders WAIST_RULES as a small reference list (background info, not a
+ * daily action item).
+ */
+function renderWaistRulesSection() {
+  const section = document.createElement('div');
+  section.className = 'diet-section';
+
+  const title = document.createElement('h3');
+  title.textContent = 'Waist rules: what not to do';
+  section.appendChild(title);
+
+  const list = document.createElement('ul');
+  list.className = 'diet-reference-list';
+  WAIST_RULES.forEach((rule) => {
+    const li = document.createElement('li');
+    li.textContent = rule;
+    list.appendChild(li);
+  });
+  section.appendChild(list);
+
+  return section;
+}
+
+/**
+ * Renders TDEE_REFERENCE (formula + example + caveat) as a collapsible
+ * secondary section, clearly labeled as reference/estimate — NOT the live
+ * calorie target, which remains NUTRITION_PHASES[phase].kcal (untouched).
+ */
+function renderTdeeReferenceSection() {
+  const details = document.createElement('details');
+  details.className = 'diet-section diet-tdee-reference';
+
+  const summary = document.createElement('summary');
+  summary.textContent = 'TDEE reference (estimate only)';
+  details.appendChild(summary);
+
+  const formula = document.createElement('p');
+  formula.className = 'diet-note';
+  formula.textContent = TDEE_REFERENCE.formula;
+  details.appendChild(formula);
+
+  const example = document.createElement('p');
+  example.className = 'diet-note';
+  example.textContent = TDEE_REFERENCE.example;
+  details.appendChild(example);
+
+  const caveat = document.createElement('p');
+  caveat.className = 'diet-note';
+  caveat.textContent = TDEE_REFERENCE.caveat;
+  details.appendChild(caveat);
+
+  return details;
+}
+
+/**
  * @param {HTMLElement} container
  */
 export async function renderDietTab(container) {
@@ -690,10 +790,12 @@ export async function renderDietTab(container) {
 
   root.appendChild(renderSummary(totals, targets));
 
+  const trainsInMorning = Boolean(settings?.trainsInMorning);
+
   const mealList = document.createElement('div');
   mealList.className = 'meal-list';
   meals.forEach((meal) => {
-    mealList.appendChild(renderMealCard(meal, log, persistAndRerender));
+    mealList.appendChild(renderMealCard(meal, log, persistAndRerender, trainsInMorning, dayKey));
   });
   root.appendChild(mealList);
 
@@ -702,6 +804,9 @@ export async function renderDietTab(container) {
   }
 
   root.appendChild(renderCustomFoodSection(log, todayCustomFoods, persistAndRerender));
+
+  root.appendChild(renderWaistRulesSection());
+  root.appendChild(renderTdeeReferenceSection());
 
   container.appendChild(root);
 }
